@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { detectDocumentType, extractFromMultipleImages } from '@/lib/claude'
+import { detectDocumentType, detectDocumentTypeFromText, extractFromMultipleImages, extractFromText } from '@/lib/claude'
 import { DocumentType } from '@/app/page'
 
 export async function POST(request: NextRequest) {
@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     const fileCount = parseInt(formData.get('fileCount') as string) || 0
     const documentTypeParam = formData.get('documentType') as DocumentType | null
+    const pdfText = formData.get('pdfText') as string | null
 
     // 파일 수집
     const files: File[] = []
@@ -25,14 +26,37 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (files.length === 0) {
+    if (files.length === 0 && !pdfText) {
       return NextResponse.json(
         { error: '파일이 필요합니다.' },
         { status: 400 }
       )
     }
 
-    // 모든 파일을 base64로 변환
+    // PDF 텍스트가 있으면 텍스트 기반 추출 사용 (더 정확함)
+    if (pdfText && pdfText.length > 100) {
+      console.log('=== 텍스트 기반 추출 모드 ===')
+
+      // 문서 유형 결정
+      let documentType: DocumentType
+      if (documentTypeParam) {
+        documentType = documentTypeParam
+      } else {
+        documentType = await detectDocumentTypeFromText(pdfText)
+      }
+
+      // 텍스트 기반 추출
+      const fields = await extractFromText(pdfText, documentType)
+
+      return NextResponse.json({
+        documentType,
+        fields,
+        extractionMethod: 'text',
+      })
+    }
+
+    // 이미지 기반 추출 (fallback)
+    console.log('=== 이미지 기반 추출 모드 ===')
     const images: { base64: string; mediaType: string }[] = []
 
     for (const file of files) {
@@ -45,11 +69,16 @@ export async function POST(request: NextRequest) {
       }
 
       // 이미지 타입 검증
-      if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+      if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'text/plain'].includes(file.type)) {
         return NextResponse.json(
           { error: `지원하지 않는 파일 형식입니다: ${file.name} (PNG, JPG, GIF, WEBP 지원)` },
           { status: 400 }
         )
+      }
+
+      // text/plain은 텍스트 추출 성공한 PDF (표시용)
+      if (file.type === 'text/plain') {
+        continue
       }
 
       const bytes = await file.arrayBuffer()
@@ -58,6 +87,13 @@ export async function POST(request: NextRequest) {
         base64: buffer.toString('base64'),
         mediaType: file.type,
       })
+    }
+
+    if (images.length === 0) {
+      return NextResponse.json(
+        { error: '이미지 파일이 필요합니다.' },
+        { status: 400 }
+      )
     }
 
     // 문서 유형 결정 (첫 번째 이미지로 판단)
@@ -75,6 +111,7 @@ export async function POST(request: NextRequest) {
       documentType,
       fields,
       pageCount: images.length,
+      extractionMethod: 'image',
     })
   } catch (error) {
     console.error('추출 오류:', error)

@@ -24,13 +24,15 @@ export interface ExtractedData {
 
 export default function Home() {
   const [files, setFiles] = useState<File[]>([])
+  const [pdfText, setPdfText] = useState<string>('')
   const [documentType, setDocumentType] = useState<DocumentType | null>(null)
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleFilesSelect = (selectedFiles: File[]) => {
+  const handleFilesSelect = (selectedFiles: File[], extractedPdfText?: string) => {
     setFiles(selectedFiles)
+    setPdfText(extractedPdfText || '')
     setExtractedData(null)
     setError(null)
   }
@@ -49,6 +51,9 @@ export default function Home() {
       formData.append('fileCount', files.length.toString())
       if (documentType) {
         formData.append('documentType', documentType)
+      }
+      if (pdfText) {
+        formData.append('pdfText', pdfText)
       }
 
       const response = await fetch('/api/extract', {

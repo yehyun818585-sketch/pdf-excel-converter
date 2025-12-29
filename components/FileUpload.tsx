@@ -4,25 +4,52 @@ import { useCallback, useState, useEffect, useRef } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 
 interface FileUploadProps {
-  onFilesSelect: (files: File[]) => void
+  onFilesSelect: (files: File[], pdfText?: string) => void
   selectedFiles: File[]
 }
 
 export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadProps) {
   const [isConverting, setIsConverting] = useState(false)
   const [isReady, setIsReady] = useState(false)
+  const [extractedText, setExtractedText] = useState<string>('')
   const initialized = useRef(false)
 
   // 클라이언트에서만 pdfjs worker 설정
   useEffect(() => {
     if (!initialized.current && typeof window !== 'undefined') {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs`
+      // pdfjs-dist 4.10.38 버전에 맞는 워커 (unpkg에서 제공)
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs`
       initialized.current = true
       setIsReady(true)
     }
   }, [])
 
-  // PDF를 여러 이미지로 변환 (모든 페이지)
+  // PDF에서 텍스트 직접 추출
+  const extractTextFromPdf = async (pdfFile: File): Promise<string> => {
+    const arrayBuffer = await pdfFile.arrayBuffer()
+
+    // CMap 설정 추가 (한글 등 CJK 폰트 지원) - 로컬 경로 사용
+    const pdf = await pdfjsLib.getDocument({
+      data: arrayBuffer,
+      cMapUrl: '/cmaps/',
+      cMapPacked: true,
+    }).promise
+
+    let fullText = ''
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i)
+      const textContent = await page.getTextContent()
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ')
+      fullText += `[페이지 ${i}]\n${pageText}\n\n`
+    }
+
+    return fullText
+  }
+
+  // PDF를 여러 이미지로 변환 (모든 페이지) - 백업용
   const convertPdfToImages = async (pdfFile: File): Promise<File[]> => {
     const arrayBuffer = await pdfFile.arrayBuffer()
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
@@ -30,7 +57,7 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
 
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i)
-      const scale = 3
+      const scale = 4  // 해상도 높임 (OCR 정확도 향상)
       const viewport = page.getViewport({ scale })
 
       const canvas = document.createElement('canvas')
@@ -57,6 +84,7 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
   const handleFiles = async (fileList: FileList) => {
     setIsConverting(true)
     const newFiles: File[] = []
+    let combinedText = ''
 
     try {
       for (const file of Array.from(fileList)) {
@@ -65,14 +93,33 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
             alert('PDF 라이브러리 로딩 중입니다. 잠시 후 다시 시도해주세요.')
             continue
           }
-          const images = await convertPdfToImages(file)
-          newFiles.push(...images)
+
+          // 먼저 텍스트 추출 시도
+          console.log('=== PDF 텍스트 추출 시도 ===')
+          const text = await extractTextFromPdf(file)
+          const textLength = text.replace(/\s/g, '').length
+          console.log('추출된 텍스트 길이 (공백 제외):', textLength)
+          console.log('추출된 텍스트 미리보기:', text.slice(0, 500))
+
+          // 텍스트가 충분히 추출되었는지 확인 (최소 100자 이상)
+          if (textLength > 100) {
+            console.log('✓ 텍스트 추출 성공! 텍스트 기반 추출 모드 사용')
+            combinedText += `[파일: ${file.name}]\n${text}\n\n`
+            // 텍스트 추출 성공 시 원본 PDF를 파일 목록에 추가 (표시용)
+            newFiles.push(new File([file], file.name, { type: 'text/plain' }))
+          } else {
+            // 텍스트 추출 실패 시 이미지로 변환
+            console.log('✗ 텍스트 추출 실패 (100자 미만), 이미지로 변환')
+            const images = await convertPdfToImages(file)
+            newFiles.push(...images)
+          }
         } else if (file.type.startsWith('image/')) {
           newFiles.push(file)
         }
       }
 
-      onFilesSelect([...selectedFiles, ...newFiles])
+      setExtractedText(combinedText)
+      onFilesSelect([...selectedFiles, ...newFiles], combinedText || undefined)
     } catch (error) {
       console.error('파일 처리 오류:', error)
       alert('파일 처리에 실패했습니다.')
@@ -104,10 +151,14 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
   const removeFile = (index: number) => {
     const newFiles = selectedFiles.filter((_, i) => i !== index)
     onFilesSelect(newFiles)
+    if (newFiles.length === 0) {
+      setExtractedText('')
+    }
   }
 
   const clearAll = () => {
     onFilesSelect([])
+    setExtractedText('')
   }
 
   return (
@@ -150,7 +201,7 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
                 PDF 또는 이미지 파일을 드래그하거나 클릭하여 업로드
               </p>
               <p className="text-sm text-gray-400">
-                여러 파일 선택 가능 | PDF는 자동으로 페이지별 이미지로 변환
+                여러 파일 선택 가능 | PDF 텍스트 자동 추출
               </p>
             </div>
           )}
@@ -163,6 +214,7 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
           <div className="flex justify-between items-center">
             <p className="text-sm font-medium text-gray-700">
               업로드된 파일 ({selectedFiles.length}개)
+              {extractedText && <span className="ml-2 text-green-600">(텍스트 추출됨)</span>}
             </p>
             <button
               onClick={clearAll}

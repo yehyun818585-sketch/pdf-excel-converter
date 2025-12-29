@@ -9,103 +9,269 @@ export const documentTemplates: Record<DocumentType, {
   contract: {
     label: '계약서',
     fields: ['partyA', 'partyB', 'contractDate', 'contractContent', 'contractAmount', 'contractTerms', 'contractPeriod'],
-    prompt: `이 계약서에서 다음 정보를 추출해주세요:
-- partyA: 계약당사자 갑 (회사명 또는 이름)
-- partyB: 계약당사자 을 (회사명 또는 이름)
-- contractDate: 계약일 (YYYY-MM-DD 형식)
-- contractContent: 계약 내용 요약
-- contractAmount: 계약 금액 (숫자만)
-- contractTerms: 주요 계약 조건
-- contractPeriod: 계약 기간`
+    prompt: `당신은 계약서 분석 전문가입니다. 아래 계약서 이미지에서 핵심 정보를 정확하게 추출해주세요.
+
+[추출 규칙]
+1. partyA (계약당사자 갑)
+   - 실제 계약을 체결하는 법인 또는 개인의 정식 명칭
+   - "수신", "발신", "참조", "수신처장" 등 문서 수발신 정보는 제외
+   - 예: "주식회사 OO", "OO 대표이사 홍길동"
+
+2. partyB (계약당사자 을)
+   - 실제 계약을 체결하는 상대방 법인 또는 개인의 정식 명칭
+   - 문서 수발신 정보는 제외
+
+3. contractDate (계약일)
+   - YYYY-MM-DD 형식
+   - 계약 체결일 또는 계약서 작성일
+
+4. contractContent (계약 내용)
+   - 계약의 목적과 핵심 내용을 2-3문장으로 요약
+   - 예: "OO 제품 공급 계약. 갑이 을에게 월 100개의 제품을 공급하고 을은 대금을 지급함."
+
+5. contractAmount (계약 금액)
+   - 형식: "한글금액(숫자, VAT 별도/포함)"
+   - 한글 금액이 있으면 한글 금액을 우선 기재
+   - 예: "일억원(100,000,000원, VAT 별도)", "오천만원(50,000,000원, VAT 포함)"
+   - 금액이 명시되지 않은 경우: "명시되지 않음"
+
+6. contractTerms (주요 계약 조건)
+   - 핵심 조건만 3-5개 항목으로 요약
+   - 예: "1) 납품기한: 계약일로부터 30일 이내 2) 대금지급: 납품 후 30일 이내 3) 하자보증: 1년"
+
+7. contractPeriod (계약 기간)
+   - 시작일 ~ 종료일 형식
+   - 예: "2025-01-01 ~ 2027-12-31 (3년)"
+   - 기간이 명시되지 않은 경우: "명시되지 않음"
+
+[중요]
+- 문서에서 명확히 확인되지 않는 정보는 null로 표시
+- 추측하지 말고 문서에 있는 내용만 추출`
   },
 
   taxInvoice: {
     label: '세금계산서',
     fields: ['supplier', 'receiver', 'issueDate', 'supplyValue', 'taxAmount', 'items'],
-    prompt: `이 세금계산서에서 다음 정보를 추출해주세요:
-- supplier: 공급자 (사업자명)
-- receiver: 공급받는자 (사업자명)
-- issueDate: 작성일 (YYYY-MM-DD 형식)
-- supplyValue: 공급가액 (숫자만)
-- taxAmount: 부가세 (숫자만)
-- items: 품목명`
+    prompt: `당신은 세금계산서 분석 전문가입니다. 아래 세금계산서에서 핵심 정보를 정확하게 추출해주세요.
+
+[추출 규칙]
+1. supplier (공급자)
+   - 사업자등록번호와 함께 표기
+   - 예: "주식회사 OO (123-45-67890)"
+
+2. receiver (공급받는자)
+   - 사업자등록번호와 함께 표기
+   - 예: "주식회사 XX (098-76-54321)"
+
+3. issueDate (작성일)
+   - YYYY-MM-DD 형식
+
+4. supplyValue (공급가액)
+   - 숫자만 (콤마 없이)
+   - 예: 10000000
+
+5. taxAmount (부가세)
+   - 숫자만 (콤마 없이)
+   - 예: 1000000
+
+6. items (품목)
+   - 주요 품목명 나열
+   - 여러 개인 경우 콤마로 구분
+
+[중요]
+- 문서에서 명확히 확인되지 않는 정보는 null로 표시`
   },
 
   tradingStatement: {
     label: '거래명세서',
     fields: ['tradingPartner', 'tradingDate', 'items', 'quantity', 'unitPrice', 'totalAmount'],
-    prompt: `이 거래명세서에서 다음 정보를 추출해주세요:
-- tradingPartner: 거래처명
-- tradingDate: 거래일 (YYYY-MM-DD 형식)
-- items: 품목명
-- quantity: 수량 (숫자만)
-- unitPrice: 단가 (숫자만)
-- totalAmount: 합계 금액 (숫자만)`
+    prompt: `당신은 거래명세서 분석 전문가입니다. 아래 거래명세서에서 핵심 정보를 정확하게 추출해주세요.
+
+[추출 규칙]
+1. tradingPartner (거래처명)
+   - 거래 상대방 회사명 또는 상호
+
+2. tradingDate (거래일)
+   - YYYY-MM-DD 형식
+
+3. items (품목명)
+   - 주요 품목 나열 (여러 개인 경우 콤마로 구분)
+
+4. quantity (수량)
+   - 총 수량 (숫자만)
+   - 여러 품목인 경우 각각 표기: "품목A: 100, 품목B: 50"
+
+5. unitPrice (단가)
+   - 숫자만 (콤마 없이)
+   - 여러 품목인 경우 각각 표기
+
+6. totalAmount (합계 금액)
+   - 형식: "한글금액(숫자, VAT 별도/포함)"
+   - 한글 금액이 있으면 한글 금액을 우선 기재
+   - 예: "일천만원(10,000,000원, VAT 별도)"
+
+[중요]
+- 문서에서 명확히 확인되지 않는 정보는 null로 표시`
   },
 
   accountingSlip: {
     label: '회계전표',
     fields: ['slipNumber', 'slipDate', 'accountCode', 'debit', 'credit', 'description'],
-    prompt: `이 회계전표에서 다음 정보를 추출해주세요:
-- slipNumber: 전표번호
-- slipDate: 전표일자 (YYYY-MM-DD 형식)
-- accountCode: 계정과목
-- debit: 차변 금액 (숫자만)
-- credit: 대변 금액 (숫자만)
-- description: 적요 (거래 내용)`
+    prompt: `당신은 회계전표 분석 전문가입니다. 아래 회계전표에서 핵심 정보를 정확하게 추출해주세요.
+
+[추출 규칙]
+1. slipNumber (전표번호)
+   - 문서에 기재된 전표번호 그대로
+
+2. slipDate (전표일자)
+   - YYYY-MM-DD 형식
+
+3. accountCode (계정과목)
+   - 차변/대변 계정과목 모두 표기
+   - 예: "차변: 외상매출금 / 대변: 매출"
+
+4. debit (차변 금액)
+   - 숫자만 (콤마 없이)
+
+5. credit (대변 금액)
+   - 숫자만 (콤마 없이)
+
+6. description (적요)
+   - 거래 내용 요약 (1-2문장)
+
+[중요]
+- 문서에서 명확히 확인되지 않는 정보는 null로 표시`
   },
 
   bankStatement: {
     label: '통장 입출금내역',
     fields: ['transactionDate', 'deposit', 'withdrawal', 'balance', 'transactionContent', 'counterparty'],
-    prompt: `이 통장 입출금내역에서 다음 정보를 추출해주세요:
-- transactionDate: 거래일 (YYYY-MM-DD 형식)
-- deposit: 입금액 (숫자만, 없으면 0)
-- withdrawal: 출금액 (숫자만, 없으면 0)
-- balance: 잔액 (숫자만)
-- transactionContent: 거래 내용
-- counterparty: 거래 상대방`
+    prompt: `당신은 통장 입출금내역 분석 전문가입니다. 아래 통장 내역에서 핵심 정보를 정확하게 추출해주세요.
+
+[추출 규칙]
+1. transactionDate (거래일)
+   - YYYY-MM-DD 형식
+   - 여러 거래가 있으면 가장 최근 거래일
+
+2. deposit (입금액)
+   - 숫자만 (콤마 없이)
+   - 없으면 0
+
+3. withdrawal (출금액)
+   - 숫자만 (콤마 없이)
+   - 없으면 0
+
+4. balance (잔액)
+   - 숫자만 (콤마 없이)
+   - 가장 최근 잔액
+
+5. transactionContent (거래 내용)
+   - 거래 적요 또는 내용
+
+6. counterparty (거래 상대방)
+   - 입금자 또는 출금 대상
+
+[중요]
+- 여러 거래가 있는 경우 주요 거래 또는 최근 거래 기준으로 추출
+- 문서에서 명확히 확인되지 않는 정보는 null로 표시`
   },
 
   assetDisposal: {
     label: '취득처분전표',
     fields: ['assetName', 'acquisitionDate', 'amount', 'counterparty', 'reason'],
-    prompt: `이 취득/처분 전표에서 다음 정보를 추출해주세요:
-- assetName: 자산명
-- acquisitionDate: 취득 또는 처분일 (YYYY-MM-DD 형식)
-- amount: 금액 (숫자만)
-- counterparty: 거래 상대방
-- reason: 취득/처분 사유`
+    prompt: `당신은 자산 취득/처분 전표 분석 전문가입니다. 아래 전표에서 핵심 정보를 정확하게 추출해주세요.
+
+[추출 규칙]
+1. assetName (자산명)
+   - 취득 또는 처분 대상 자산의 정확한 명칭
+   - 예: "업무용 차량 (소나타)", "사무용 컴퓨터"
+
+2. acquisitionDate (취득/처분일)
+   - YYYY-MM-DD 형식
+
+3. amount (금액)
+   - 형식: "한글금액(숫자, VAT 별도/포함)"
+   - 한글 금액이 있으면 한글 금액을 우선 기재
+   - 예: "삼천만원(30,000,000원, VAT 포함)"
+
+4. counterparty (거래 상대방)
+   - 자산을 구입/판매한 상대방
+
+5. reason (취득/처분 사유)
+   - 간단한 사유 설명
+   - 예: "업무용 차량 교체", "노후 장비 매각"
+
+[중요]
+- 문서에서 명확히 확인되지 않는 정보는 null로 표시`
   },
 
   withholdingTax: {
     label: '급여원천징수이행상황신고서',
     fields: ['attributionMonth', 'numberOfPeople', 'totalPayment', 'incomeTax', 'localIncomeTax'],
-    prompt: `이 원천징수이행상황신고서에서 다음 정보를 추출해주세요:
-- attributionMonth: 귀속 연월 (YYYY-MM 형식)
-- numberOfPeople: 인원수 (숫자만)
-- totalPayment: 총 지급액 (숫자만)
-- incomeTax: 소득세 (숫자만)
-- localIncomeTax: 지방소득세 (숫자만)`
+    prompt: `당신은 원천징수이행상황신고서 분석 전문가입니다. 아래 신고서에서 핵심 정보를 정확하게 추출해주세요.
+
+[추출 규칙]
+1. attributionMonth (귀속 연월)
+   - YYYY-MM 형식
+   - 예: "2025-01"
+
+2. numberOfPeople (인원수)
+   - 숫자만
+   - 총 인원수
+
+3. totalPayment (총 지급액)
+   - 숫자만 (콤마 없이)
+   - 예: 50000000
+
+4. incomeTax (소득세)
+   - 숫자만 (콤마 없이)
+
+5. localIncomeTax (지방소득세)
+   - 숫자만 (콤마 없이)
+
+[중요]
+- 문서에서 명확히 확인되지 않는 정보는 null로 표시`
   },
 
   estimate: {
     label: '견적서',
     fields: ['tradingPartner', 'createdDate', 'items', 'quantity', 'unitPrice', 'totalAmount', 'validityPeriod'],
-    prompt: `이 견적서에서 다음 정보를 추출해주세요:
-- tradingPartner: 거래처명 (견적 받는 곳)
-- createdDate: 작성일 (YYYY-MM-DD 형식)
-- items: 품목명
-- quantity: 수량 (숫자만)
-- unitPrice: 단가 (숫자만)
-- totalAmount: 합계 금액 (숫자만)
-- validityPeriod: 견적 유효기간`
+    prompt: `당신은 견적서 분석 전문가입니다. 아래 견적서에서 핵심 정보를 정확하게 추출해주세요.
+
+[추출 규칙]
+1. tradingPartner (거래처명)
+   - 견적을 받는 회사 또는 고객명
+
+2. createdDate (작성일)
+   - YYYY-MM-DD 형식
+
+3. items (품목명)
+   - 주요 품목 나열 (여러 개인 경우 콤마로 구분)
+
+4. quantity (수량)
+   - 숫자만
+   - 여러 품목인 경우: "품목A: 10, 품목B: 5"
+
+5. unitPrice (단가)
+   - 숫자만 (콤마 없이)
+   - 여러 품목인 경우 각각 표기
+
+6. totalAmount (합계 금액)
+   - 형식: "한글금액(숫자, VAT 별도/포함)"
+   - 한글 금액이 있으면 한글 금액을 우선 기재
+   - 예: "오천만원(50,000,000원, VAT 별도)"
+
+7. validityPeriod (견적 유효기간)
+   - 예: "견적일로부터 30일", "2025-02-28까지"
+
+[중요]
+- 문서에서 명확히 확인되지 않는 정보는 null로 표시`
   },
 }
 
 // 문서 유형 자동 인식 프롬프트
 export const documentTypeDetectionPrompt = `이 문서의 유형을 판별해주세요. 다음 중 하나를 선택하세요:
-- contract: 계약서 (용역계약서, 매매계약서, 임대차계약서 등)
+- contract: 계약서 (용역계약서, 매매계약서, 임대차계약서, 공급계약서 등)
 - taxInvoice: 세금계산서
 - tradingStatement: 거래명세서
 - accountingSlip: 회계전표 (분개전표, 입금전표, 출금전표 등)
