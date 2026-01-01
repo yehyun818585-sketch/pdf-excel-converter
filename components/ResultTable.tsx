@@ -17,6 +17,24 @@ const documentTypeLabels: Record<DocumentType, string> = {
   estimate: '견적서',
 }
 
+// 숫자 금액 필드 (콤마 포맷 적용)
+const numberFields = ['supplyValue', 'taxAmount', 'totalAmount', 'unpaidAmount', 'deposit', 'withdrawal', 'balance', 'debit', 'credit', 'incomeTax', 'localIncomeTax', 'totalPayment', 'unitPrice', 'amount']
+
+// 숫자를 천 단위 콤마 포맷으로 변환
+const formatNumber = (value: any): string => {
+  if (value === null || value === undefined || value === '') return '-'
+  const num = typeof value === 'string' ? parseFloat(value.replace(/,/g, '')) : value
+  if (isNaN(num)) return String(value)
+  return num.toLocaleString('ko-KR')
+}
+
+// 필드 값 포맷팅
+const formatValue = (key: string, value: any): string => {
+  if (value === null || value === undefined) return '-'
+  if (numberFields.includes(key)) return formatNumber(value)
+  return String(value)
+}
+
 const fieldLabels: Record<string, string> = {
   // 계약서
   partyA: '계약당사자(갑)',
@@ -98,7 +116,7 @@ export default function ResultTable({ data }: ResultTableProps) {
                   {fieldLabels[key] || key}
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-600">
-                  {value !== null && value !== undefined ? String(value) : '-'}
+                  {formatValue(key, value)}
                 </td>
               </tr>
             ))}

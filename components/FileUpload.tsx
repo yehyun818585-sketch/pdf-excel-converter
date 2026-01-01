@@ -10,25 +10,21 @@ interface FileUploadProps {
 
 export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadProps) {
   const [isConverting, setIsConverting] = useState(false)
+  const [conversionStatus, setConversionStatus] = useState<string>('')
   const [isReady, setIsReady] = useState(false)
   const [extractedText, setExtractedText] = useState<string>('')
   const initialized = useRef(false)
 
-  // 클라이언트에서만 pdfjs worker 설정
   useEffect(() => {
     if (!initialized.current && typeof window !== 'undefined') {
-      // pdfjs-dist 4.10.38 버전에 맞는 워커 (unpkg에서 제공)
       pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs`
       initialized.current = true
       setIsReady(true)
     }
   }, [])
 
-  // PDF에서 텍스트 직접 추출
   const extractTextFromPdf = async (pdfFile: File): Promise<string> => {
     const arrayBuffer = await pdfFile.arrayBuffer()
-
-    // CMap 설정 추가 (한글 등 CJK 폰트 지원) - 로컬 경로 사용
     const pdf = await pdfjsLib.getDocument({
       data: arrayBuffer,
       cMapUrl: '/cmaps/',
@@ -36,7 +32,6 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
     }).promise
 
     let fullText = ''
-
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i)
       const textContent = await page.getTextContent()
@@ -45,19 +40,18 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
         .join(' ')
       fullText += `[페이지 ${i}]\n${pageText}\n\n`
     }
-
     return fullText
   }
 
-  // PDF를 여러 이미지로 변환 (스캔된 PDF용)
-  const convertPdfToImages = async (pdfFile: File): Promise<File[]> => {
+  const convertPdfToBase64Images = async (pdfFile: File): Promise<{ base64: string; mediaType: string }[]> => {
     const arrayBuffer = await pdfFile.arrayBuffer()
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
-    const images: File[] = []
+    const images: { base64: string; mediaType: string }[] = []
 
     for (let i = 1; i <= pdf.numPages; i++) {
+      setConversionStatus(`이미지 변환 중... (${i}/${pdf.numPages})`)
       const page = await pdf.getPage(i)
-      const scale = 6  // 고해상도 (정확도 향상)
+      const scale = 3
       const viewport = page.getViewport({ scale })
 
       const canvas = document.createElement('canvas')
@@ -70,19 +64,33 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
         viewport: viewport,
       }).promise
 
-      const blob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((blob) => resolve(blob!), 'image/png', 1.0)
-      })
-
-      const fileName = pdfFile.name.replace('.pdf', `_page${i}.png`)
-      images.push(new File([blob], fileName, { type: 'image/png' }))
+      const base64 = canvas.toDataURL('image/png').split(',')[1]
+      images.push({ base64, mediaType: 'image/png' })
     }
 
     return images
   }
 
+  const callGoogleOcr = async (images: { base64: string; mediaType: string }[]): Promise<string> => {
+    setConversionStatus('Google Vision OCR 처리 중...')
+
+    const response = await fetch('/api/ocr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images, useDocumentMode: true }),
+    })
+
+    if (!response.ok) {
+      throw new Error('OCR 처리 실패')
+    }
+
+    const data = await response.json()
+    return data.text
+  }
+
   const handleFiles = async (fileList: FileList) => {
     setIsConverting(true)
+    setConversionStatus('파일 분석 중...')
     const newFiles: File[] = []
     let combinedText = ''
 
@@ -94,31 +102,48 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
             continue
           }
 
-          // PDF에서 텍스트 직접 추출 (항상 텍스트 기반 추출 사용)
           console.log('=== PDF 텍스트 추출 시도 ===')
+          setConversionStatus('텍스트 추출 시도 중...')
           const text = await extractTextFromPdf(file)
 
-          // 페이지 태그를 제외한 실제 콘텐츠만 추출
           const contentOnly = text.replace(/\[페이지 \d+\]\s*/g, '').trim()
           const contentLength = contentOnly.replace(/\s/g, '').length
 
-          console.log('추출된 텍스트 길이 (실제 콘텐츠, 공백 제외):', contentLength)
-          console.log('추출된 텍스트 미리보기:', text.slice(0, 500))
+          console.log('추출된 텍스트 길이:', contentLength)
 
-          // 실제 콘텐츠가 있는지 확인 (최소 50자 이상의 실제 텍스트)
           if (contentLength >= 50) {
-            console.log('✓ 텍스트 추출 성공! 텍스트 기반 추출 모드 사용')
+            console.log('✓ 텍스트 추출 성공!')
             combinedText += `[파일: ${file.name}]\n${text}\n\n`
             newFiles.push(new File([file], file.name, { type: 'text/plain' }))
           } else {
-            // 실제 콘텐츠가 없는 경우 (스캔된 PDF) → 이미지로 변환
-            console.log('✗ 텍스트 추출 실패 (스캔된 PDF), 이미지로 변환하여 Vision API 사용')
-            const images = await convertPdfToImages(file)
-            newFiles.push(...images)
-            console.log(`✓ ${images.length}개 이미지로 변환 완료`)
+            console.log('✗ 스캔 PDF 감지! Google Vision OCR 사용')
+            setConversionStatus('스캔 PDF 감지 - OCR 처리 시작...')
+
+            const images = await convertPdfToBase64Images(file)
+            console.log(`${images.length}개 페이지 이미지 변환 완료`)
+
+            const ocrText = await callGoogleOcr(images)
+            console.log('Google OCR 결과 길이:', ocrText.length)
+
+            if (ocrText && ocrText.length > 50) {
+              combinedText += `[파일: ${file.name} (OCR)]\n${ocrText}\n\n`
+              newFiles.push(new File([file], file.name, { type: 'text/plain' }))
+            } else {
+              console.log('OCR 텍스트 부족, Claude Vision 사용')
+              for (let idx = 0; idx < images.length; idx++) {
+                const img = images[idx]
+                const binary = atob(img.base64)
+                const array = new Uint8Array(binary.length)
+                for (let j = 0; j < binary.length; j++) {
+                  array[j] = binary.charCodeAt(j)
+                }
+                const blob = new Blob([array], { type: 'image/png' })
+                const imgFile = new File([blob], file.name.replace('.pdf', `_page${idx + 1}.png`), { type: 'image/png' })
+                newFiles.push(imgFile)
+              }
+            }
           }
         } else if (file.type.startsWith('image/')) {
-          // 이미지 파일은 지원하지 않음 (정확도 문제)
           alert('이미지 파일은 지원하지 않습니다. PDF 파일만 업로드해주세요.')
           continue
         }
@@ -128,9 +153,10 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
       onFilesSelect([...selectedFiles, ...newFiles], combinedText || undefined)
     } catch (error) {
       console.error('파일 처리 오류:', error)
-      alert('파일 처리에 실패했습니다.')
+      alert('파일 처리에 실패했습니다: ' + (error as Error).message)
     } finally {
       setIsConverting(false)
+      setConversionStatus('')
     }
   }
 
@@ -194,7 +220,7 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
               </div>
-              <p className="text-yellow-600 font-medium">파일 처리 중...</p>
+              <p className="text-yellow-600 font-medium">{conversionStatus || '처리 중...'}</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -207,14 +233,13 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
                 PDF 파일을 드래그하거나 클릭하여 업로드
               </p>
               <p className="text-sm text-gray-400">
-                여러 파일 선택 가능 | 텍스트 자동 추출
+                텍스트 PDF / 스캔 PDF 모두 지원 (Google OCR)
               </p>
             </div>
           )}
         </label>
       </div>
 
-      {/* 업로드된 파일 목록 */}
       {selectedFiles.length > 0 && (
         <div className="space-y-2">
           <div className="flex justify-between items-center">

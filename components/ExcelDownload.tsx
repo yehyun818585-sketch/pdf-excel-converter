@@ -32,15 +32,16 @@ const fieldLabels: Record<string, string> = {
   supplier: '공급자',
   receiver: '공급받는자',
   issueDate: '작성일',
+  items: '품목',
   supplyValue: '공급가액',
   taxAmount: '부가세',
-  items: '품목',
+  totalAmount: '총액/합계',
+  unpaidAmount: '미지급금',
   // 거래명세서
   tradingPartner: '거래처',
   tradingDate: '거래일',
   quantity: '수량',
   unitPrice: '단가',
-  totalAmount: '합계',
   // 회계전표
   slipNumber: '전표번호',
   slipDate: '일자',
@@ -95,6 +96,26 @@ const cellStyle = {
   alignment: { vertical: 'center', wrapText: true },
 }
 
+// 미지급금 볼드 스타일
+const boldCellStyle = {
+  border: {
+    top: { style: 'thin', color: { rgb: 'CCCCCC' } },
+    bottom: { style: 'thin', color: { rgb: 'CCCCCC' } },
+    left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+    right: { style: 'thin', color: { rgb: 'CCCCCC' } },
+  },
+  alignment: { vertical: 'center', wrapText: true },
+  font: { bold: true },
+}
+
+// 숫자를 천 단위 콤마 포맷으로 변환
+const formatNumber = (value: any): string => {
+  if (value === null || value === undefined || value === '') return ''
+  const num = typeof value === 'string' ? parseFloat(value.replace(/,/g, '')) : value
+  if (isNaN(num)) return String(value)
+  return num.toLocaleString('ko-KR')
+}
+
 // 계약조건 등 배열 데이터를 줄바꿈으로 분리
 const formatArrayValue = (value: any): string => {
   if (Array.isArray(value)) {
@@ -116,14 +137,31 @@ export default function ExcelDownload({ data, fileName }: ExcelDownloadProps) {
 
     // 긴 텍스트 필드 (문장 단위 줄바꿈 적용)
     const longTextFields = ['contractContent', 'description', 'transactionContent']
+    // 숫자 금액 필드 (콤마 포맷 적용)
+    const numberFields = ['supplyValue', 'taxAmount', 'totalAmount', 'unpaidAmount', 'deposit', 'withdrawal', 'balance', 'debit', 'credit', 'incomeTax', 'localIncomeTax', 'totalPayment']
+    // 볼드 스타일 적용 필드
+    const boldFields = ['unpaidAmount']
 
-    Object.entries(data.fields).forEach(([key, value]) => {
+    // 볼드 필드 행 번호 저장 (스타일 적용용)
+    const boldRowIndices: number[] = []
+
+    Object.entries(data.fields).forEach(([key, value], index) => {
       const label = fieldLabels[key] || key
       let formattedValue = formatArrayValue(value)
+
+      // 숫자 금액 필드는 콤마 포맷 적용
+      if (numberFields.includes(key)) {
+        formattedValue = formatNumber(value)
+      }
 
       // 긴 텍스트 필드는 문장 단위로 줄바꿈
       if (longTextFields.includes(key) && typeof formattedValue === 'string') {
         formattedValue = formatLongText(formattedValue)
+      }
+
+      // 볼드 필드 행 번호 저장 (헤더가 0번이므로 +1)
+      if (boldFields.includes(key) && value) {
+        boldRowIndices.push(index + 1)
       }
 
       rows.push([label, formattedValue])
@@ -145,6 +183,10 @@ export default function ExcelDownload({ data, fileName }: ExcelDownloadProps) {
         // 긴 텍스트는 문장 수에 따라 높이 조정
         const sentenceCount = (value.match(/\. /g) || []).length + 1
         rowHeights.push({ hpt: Math.max(25, sentenceCount * 20) })
+      } else if (typeof value === 'string' && value.includes('\n')) {
+        // 줄바꿈 포함된 필드 (계약조건 등)는 줄 수에 따라 높이 조정
+        const lineCount = (value.match(/\n/g) || []).length + 1
+        rowHeights.push({ hpt: Math.max(25, lineCount * 20) })
       } else {
         rowHeights.push({ hpt: 25 })
       }
@@ -162,6 +204,9 @@ export default function ExcelDownload({ data, fileName }: ExcelDownloadProps) {
         if (R === 0) {
           // 헤더 행 스타일
           ws[cellAddress].s = headerStyle
+        } else if (boldRowIndices.includes(R)) {
+          // 볼드 스타일 (미지급금 등)
+          ws[cellAddress].s = boldCellStyle
         } else {
           // 데이터 행 스타일
           ws[cellAddress].s = cellStyle

@@ -37,7 +37,9 @@ export const documentTemplates: Record<DocumentType, {
 
 6. contractTerms (주요 계약 조건)
    - 핵심 조건만 3-5개 항목으로 요약
-   - 예: "1) 납품기한: 계약일로부터 30일 이내 2) 대금지급: 납품 후 30일 이내 3) 하자보증: 1년"
+   - 반드시 각 조건을 줄바꿈(\n)으로 구분
+   - 형식: "1) 조건1\n2) 조건2\n3) 조건3"
+   - 예: "1) 납품기한: 30일 이내\n2) 대금지급: 납품 후 30일\n3) 하자보증: 1년"
 
 7. contractPeriod (계약 기간)
    - 시작일 ~ 종료일 형식
@@ -51,7 +53,7 @@ export const documentTemplates: Record<DocumentType, {
 
   taxInvoice: {
     label: '세금계산서',
-    fields: ['supplier', 'receiver', 'issueDate', 'supplyValue', 'taxAmount', 'items'],
+    fields: ['supplier', 'receiver', 'issueDate', 'items', 'supplyValue', 'taxAmount', 'totalAmount', 'unpaidAmount'],
     prompt: `당신은 세금계산서 분석 전문가입니다. 아래 세금계산서에서 핵심 정보를 정확하게 추출해주세요.
 
 [추출 규칙]
@@ -66,17 +68,27 @@ export const documentTemplates: Record<DocumentType, {
 3. issueDate (작성일)
    - YYYY-MM-DD 형식
 
-4. supplyValue (공급가액)
+4. items (품목)
+   - 주요 품목명 나열
+   - 여러 개인 경우 콤마로 구분
+
+5. supplyValue (공급가액)
    - 숫자만 (콤마 없이)
    - 예: 10000000
 
-5. taxAmount (부가세)
+6. taxAmount (부가세)
    - 숫자만 (콤마 없이)
    - 예: 1000000
 
-6. items (품목)
-   - 주요 품목명 나열
-   - 여러 개인 경우 콤마로 구분
+7. totalAmount (총액)
+   - 공급가액 + 부가세
+   - 숫자만 (콤마 없이)
+   - 예: 11000000
+
+8. unpaidAmount (미지급금)
+   - 미지급 금액이 있는 경우에만 기재
+   - 숫자만 (콤마 없이)
+   - 없으면 null
 
 [중요]
 - 문서에서 명확히 확인되지 않는 정보는 null로 표시`
@@ -84,28 +96,32 @@ export const documentTemplates: Record<DocumentType, {
 
   tradingStatement: {
     label: '거래명세서',
-    fields: ['tradingPartner', 'tradingDate', 'items', 'quantity', 'unitPrice', 'totalAmount'],
+    fields: ['supplier', 'tradingPartner', 'tradingDate', 'items', 'quantity', 'unitPrice', 'totalAmount'],
     prompt: `당신은 거래명세서 분석 전문가입니다. 아래 거래명세서에서 핵심 정보를 정확하게 추출해주세요.
 
 [추출 규칙]
-1. tradingPartner (거래처명)
+1. supplier (공급자)
+   - 사업자등록번호와 함께 표기
+   - 예: "주식회사 OO (123-45-67890)"
+
+2. tradingPartner (거래처명)
    - 거래 상대방 회사명 또는 상호
 
-2. tradingDate (거래일)
+3. tradingDate (거래일)
    - YYYY-MM-DD 형식
 
-3. items (품목명)
+4. items (품목명)
    - 주요 품목 나열 (여러 개인 경우 콤마로 구분)
 
-4. quantity (수량)
+5. quantity (수량)
    - 총 수량 (숫자만)
    - 여러 품목인 경우 각각 표기: "품목A: 100, 품목B: 50"
 
-5. unitPrice (단가)
+6. unitPrice (단가)
    - 숫자만 (콤마 없이)
    - 여러 품목인 경우 각각 표기
 
-6. totalAmount (합계 금액)
+7. totalAmount (합계 금액)
    - 형식: "한글금액(숫자, VAT 별도/포함)"
    - 한글 금액이 있으면 한글 금액을 우선 기재
    - 예: "일천만원(10,000,000원, VAT 별도)"
