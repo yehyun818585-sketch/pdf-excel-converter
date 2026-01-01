@@ -8,11 +8,16 @@ export const documentTemplates: Record<DocumentType, {
 }> = {
   contract: {
     label: '계약서',
-    fields: ['partyA', 'partyB', 'contractDate', 'contractContent', 'contractAmount', 'contractTerms', 'contractPeriod'],
+    fields: ['contractTitle', 'partyA', 'partyB', 'contractDate', 'contractContent', 'contractAmount', 'contractTerms', 'contractPeriod'],
     prompt: `당신은 계약서 분석 전문가입니다. 아래 계약서 이미지에서 핵심 정보를 정확하게 추출해주세요.
 
 [추출 규칙]
-1. partyA (계약당사자 갑)
+1. contractTitle (계약서 제목)
+   - 계약의 핵심 내용을 나타내는 간결한 제목
+   - 문서에 제목이 있으면 그대로, 없으면 핵심 키워드로 생성
+   - 예: "산업용 스마트 센서 공급계약", "사무실 임대차계약", "SI개발 용역계약"
+
+2. partyA (계약당사자 갑)
    - 실제 계약을 체결하는 법인 또는 개인의 정식 명칭
    - "수신", "발신", "참조", "수신처장" 등 문서 수발신 정보는 제외
    - 예: "주식회사 OO", "OO 대표이사 홍길동"
@@ -132,7 +137,7 @@ export const documentTemplates: Record<DocumentType, {
 
   accountingSlip: {
     label: '회계전표',
-    fields: ['slipNumber', 'slipDate', 'accountCode', 'debit', 'credit', 'description'],
+    fields: ['slipNumber', 'slipDate', 'entries'],
     prompt: `당신은 회계전표 분석 전문가입니다. 아래 회계전표에서 핵심 정보를 정확하게 추출해주세요.
 
 [추출 규칙]
@@ -142,20 +147,27 @@ export const documentTemplates: Record<DocumentType, {
 2. slipDate (전표일자)
    - YYYY-MM-DD 형식
 
-3. accountCode (계정과목)
-   - 차변/대변 계정과목 모두 표기
-   - 예: "차변: 외상매출금 / 대변: 매출"
+3. entries (분개 내역) - 배열 형식으로 추출
+   - 회계전표에 있는 모든 분개 라인을 배열로 추출
+   - 각 라인은 다음 필드를 포함:
+     * accountCode: 계정과목명
+     * debit: 차변 금액 (숫자만, 없으면 0)
+     * credit: 대변 금액 (숫자만, 없으면 0)
+     * description: 적요/거래내용
 
-4. debit (차변 금액)
-   - 숫자만 (콤마 없이)
-
-5. credit (대변 금액)
-   - 숫자만 (콤마 없이)
-
-6. description (적요)
-   - 거래 내용 요약 (1-2문장)
+[응답 형식 예시]
+{
+  "slipNumber": "J2025-0001",
+  "slipDate": "2025-01-15",
+  "entries": [
+    { "accountCode": "현금", "debit": 1000000, "credit": 0, "description": "매출대금 수령" },
+    { "accountCode": "매출", "debit": 0, "credit": 1000000, "description": "상품 판매" }
+  ]
+}
 
 [중요]
+- 전표에 여러 줄의 분개가 있으면 모두 entries 배열에 포함
+- 차변 합계와 대변 합계가 일치해야 함 (복식부기 원칙)
 - 문서에서 명확히 확인되지 않는 정보는 null로 표시`
   },
 

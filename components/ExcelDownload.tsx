@@ -1,6 +1,6 @@
 'use client'
 
-import { ExtractedData, DocumentType } from '@/app/page'
+import { ExtractedData, DocumentType, AccountingEntry } from '@/app/page'
 import XLSX from 'xlsx-js-style'
 
 interface ExcelDownloadProps {
@@ -21,6 +21,7 @@ const documentTypeLabels: Record<DocumentType, string> = {
 
 const fieldLabels: Record<string, string> = {
   // 계약서
+  contractTitle: '계약서 제목',
   partyA: '계약당사자(갑)',
   partyB: '계약당사자(을)',
   contractDate: '계약일',
@@ -130,93 +131,157 @@ const formatLongText = (value: string): string => {
   return value.replace(/\. (?![0-9])/g, '.\n')
 }
 
+// 회계전표 분개 테이블 헤더 스타일
+const entryHeaderStyle = {
+  fill: { fgColor: { rgb: '4472C4' } },
+  font: { bold: true, color: { rgb: 'FFFFFF' } },
+  border: {
+    top: { style: 'thin', color: { rgb: '000000' } },
+    bottom: { style: 'thin', color: { rgb: '000000' } },
+    left: { style: 'thin', color: { rgb: '000000' } },
+    right: { style: 'thin', color: { rgb: '000000' } },
+  },
+  alignment: { vertical: 'center', horizontal: 'center' },
+}
+
 export default function ExcelDownload({ data, fileName }: ExcelDownloadProps) {
   const handleDownload = () => {
-    // 데이터를 행 배열로 변환 (헤더 포함)
-    const rows: any[][] = [['항목', '값']]
+    const wb = XLSX.utils.book_new()
 
-    // 긴 텍스트 필드 (문장 단위 줄바꿈 적용)
-    const longTextFields = ['contractContent', 'description', 'transactionContent']
-    // 숫자 금액 필드 (콤마 포맷 적용)
-    const numberFields = ['supplyValue', 'taxAmount', 'totalAmount', 'unpaidAmount', 'deposit', 'withdrawal', 'balance', 'debit', 'credit', 'incomeTax', 'localIncomeTax', 'totalPayment']
-    // 볼드 스타일 적용 필드
-    const boldFields = ['unpaidAmount']
+    // 회계전표이고 entries가 있는 경우 특별 처리
+    if (data.documentType === 'accountingSlip' && data.fields.entries && Array.isArray(data.fields.entries)) {
+      const entries = data.fields.entries as AccountingEntry[]
 
-    // 볼드 필드 행 번호 저장 (스타일 적용용)
-    const boldRowIndices: number[] = []
+      // 기본 정보 시트
+      const infoRows: any[][] = [['항목', '값']]
+      infoRows.push(['전표번호', data.fields.slipNumber || ''])
+      infoRows.push(['일자', data.fields.slipDate || ''])
+      infoRows.push(['분개 라인 수', `${entries.length}줄`])
 
-    Object.entries(data.fields).forEach(([key, value], index) => {
-      const label = fieldLabels[key] || key
-      let formattedValue = formatArrayValue(value)
+      const infoWs = XLSX.utils.aoa_to_sheet(infoRows)
+      infoWs['!cols'] = [{ wch: 15 }, { wch: 30 }]
 
-      // 숫자 금액 필드는 콤마 포맷 적용
-      if (numberFields.includes(key)) {
-        formattedValue = formatNumber(value)
-      }
-
-      // 긴 텍스트 필드는 문장 단위로 줄바꿈
-      if (longTextFields.includes(key) && typeof formattedValue === 'string') {
-        formattedValue = formatLongText(formattedValue)
-      }
-
-      // 볼드 필드 행 번호 저장 (헤더가 0번이므로 +1)
-      if (boldFields.includes(key) && value) {
-        boldRowIndices.push(index + 1)
-      }
-
-      rows.push([label, formattedValue])
-    })
-
-    // 워크시트 생성
-    const ws = XLSX.utils.aoa_to_sheet(rows)
-
-    // 컬럼 너비 설정
-    ws['!cols'] = [{ wch: 20 }, { wch: 80 }]
-
-    // 행 높이 설정 (배열/긴텍스트 데이터는 더 높게)
-    const rowHeights: { hpt: number }[] = [{ hpt: 25 }] // 헤더 높이
-    Object.entries(data.fields).forEach(([key, value]) => {
-      if (Array.isArray(value)) {
-        // 배열 항목 수에 따라 높이 조정 (항목당 20pt)
-        rowHeights.push({ hpt: Math.max(25, value.length * 20) })
-      } else if (longTextFields.includes(key) && typeof value === 'string') {
-        // 긴 텍스트는 문장 수에 따라 높이 조정
-        const sentenceCount = (value.match(/\. /g) || []).length + 1
-        rowHeights.push({ hpt: Math.max(25, sentenceCount * 20) })
-      } else if (typeof value === 'string' && value.includes('\n')) {
-        // 줄바꿈 포함된 필드 (계약조건 등)는 줄 수에 따라 높이 조정
-        const lineCount = (value.match(/\n/g) || []).length + 1
-        rowHeights.push({ hpt: Math.max(25, lineCount * 20) })
-      } else {
-        rowHeights.push({ hpt: 25 })
-      }
-    })
-    ws['!rows'] = rowHeights
-
-    // 스타일 적용
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
-
-    for (let R = range.s.r; R <= range.e.r; R++) {
-      for (let C = range.s.c; C <= range.e.c; C++) {
-        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C })
-        if (!ws[cellAddress]) continue
-
-        if (R === 0) {
-          // 헤더 행 스타일
-          ws[cellAddress].s = headerStyle
-        } else if (boldRowIndices.includes(R)) {
-          // 볼드 스타일 (미지급금 등)
-          ws[cellAddress].s = boldCellStyle
-        } else {
-          // 데이터 행 스타일
-          ws[cellAddress].s = cellStyle
+      // 스타일 적용
+      for (let R = 0; R <= 3; R++) {
+        for (let C = 0; C <= 1; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C })
+          if (infoWs[addr]) {
+            infoWs[addr].s = R === 0 ? headerStyle : cellStyle
+          }
         }
       }
-    }
 
-    // 워크북 생성
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, documentTypeLabels[data.documentType])
+      XLSX.utils.book_append_sheet(wb, infoWs, '전표정보')
+
+      // 분개 내역 시트
+      const entryRows: any[][] = [['계정과목', '차변', '대변', '적요']]
+      let totalDebit = 0
+      let totalCredit = 0
+
+      entries.forEach((entry) => {
+        entryRows.push([
+          entry.accountCode || '',
+          entry.debit ? formatNumber(entry.debit) : '',
+          entry.credit ? formatNumber(entry.credit) : '',
+          entry.description || '',
+        ])
+        totalDebit += entry.debit || 0
+        totalCredit += entry.credit || 0
+      })
+
+      // 합계 행 추가
+      entryRows.push(['합계', formatNumber(totalDebit), formatNumber(totalCredit), totalDebit === totalCredit ? '대차일치' : '대차불일치'])
+
+      const entryWs = XLSX.utils.aoa_to_sheet(entryRows)
+      entryWs['!cols'] = [{ wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 40 }]
+
+      // 스타일 적용
+      const entryRange = XLSX.utils.decode_range(entryWs['!ref'] || 'A1')
+      for (let R = entryRange.s.r; R <= entryRange.e.r; R++) {
+        for (let C = entryRange.s.c; C <= entryRange.e.c; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C })
+          if (entryWs[addr]) {
+            if (R === 0) {
+              entryWs[addr].s = entryHeaderStyle
+            } else if (R === entryRange.e.r) {
+              entryWs[addr].s = boldCellStyle
+            } else {
+              entryWs[addr].s = cellStyle
+            }
+          }
+        }
+      }
+
+      XLSX.utils.book_append_sheet(wb, entryWs, '분개내역')
+    } else {
+      // 기존 로직: 다른 문서 유형
+      const rows: any[][] = [['항목', '값']]
+
+      const longTextFields = ['contractContent', 'description', 'transactionContent']
+      const numberFields = ['supplyValue', 'taxAmount', 'totalAmount', 'unpaidAmount', 'deposit', 'withdrawal', 'balance', 'debit', 'credit', 'incomeTax', 'localIncomeTax', 'totalPayment']
+      const boldFields = ['unpaidAmount']
+      const boldRowIndices: number[] = []
+
+      Object.entries(data.fields).forEach(([key, value], index) => {
+        // entries 필드는 스킵 (회계전표용)
+        if (key === 'entries') return
+
+        const label = fieldLabels[key] || key
+        let formattedValue = formatArrayValue(value)
+
+        if (numberFields.includes(key)) {
+          formattedValue = formatNumber(value)
+        }
+
+        if (longTextFields.includes(key) && typeof formattedValue === 'string') {
+          formattedValue = formatLongText(formattedValue)
+        }
+
+        if (boldFields.includes(key) && value) {
+          boldRowIndices.push(rows.length)
+        }
+
+        rows.push([label, formattedValue])
+      })
+
+      const ws = XLSX.utils.aoa_to_sheet(rows)
+      ws['!cols'] = [{ wch: 20 }, { wch: 80 }]
+
+      const rowHeights: { hpt: number }[] = [{ hpt: 25 }]
+      Object.entries(data.fields).forEach(([key, value]) => {
+        if (key === 'entries') return
+        if (Array.isArray(value)) {
+          rowHeights.push({ hpt: Math.max(25, value.length * 20) })
+        } else if (longTextFields.includes(key) && typeof value === 'string') {
+          const sentenceCount = (value.match(/\. /g) || []).length + 1
+          rowHeights.push({ hpt: Math.max(25, sentenceCount * 20) })
+        } else if (typeof value === 'string' && value.includes('\n')) {
+          const lineCount = (value.match(/\n/g) || []).length + 1
+          rowHeights.push({ hpt: Math.max(25, lineCount * 20) })
+        } else {
+          rowHeights.push({ hpt: 25 })
+        }
+      })
+      ws['!rows'] = rowHeights
+
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
+      for (let R = range.s.r; R <= range.e.r; R++) {
+        for (let C = range.s.c; C <= range.e.c; C++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: R, c: C })
+          if (!ws[cellAddress]) continue
+
+          if (R === 0) {
+            ws[cellAddress].s = headerStyle
+          } else if (boldRowIndices.includes(R)) {
+            ws[cellAddress].s = boldCellStyle
+          } else {
+            ws[cellAddress].s = cellStyle
+          }
+        }
+      }
+
+      XLSX.utils.book_append_sheet(wb, ws, documentTypeLabels[data.documentType])
+    }
 
     // 파일 이름 생성
     const baseFileName = fileName?.replace(/\.[^/.]+$/, '') || '추출결과'

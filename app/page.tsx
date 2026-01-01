@@ -16,9 +16,17 @@ export type DocumentType =
   | 'withholdingTax'     // 급여원천징수이행상황신고서
   | 'estimate'           // 견적서
 
+// 회계전표 분개 라인 타입
+export interface AccountingEntry {
+  accountCode: string
+  debit: number
+  credit: number
+  description: string
+}
+
 export interface ExtractedData {
   documentType: DocumentType
-  fields: Record<string, string | number | null>
+  fields: Record<string, string | number | null | AccountingEntry[]>
   rawText?: string
 }
 
@@ -87,6 +95,12 @@ export default function Home() {
           <p className="text-gray-600">
             PDF/이미지 문서를 업로드하면 핵심 정보를 자동 추출하여 엑셀로 변환합니다
           </p>
+          <a
+            href="/batch"
+            className="inline-block mt-3 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors text-sm font-medium"
+          >
+            대량 증빙 일괄 처리 →
+          </a>
         </div>
 
         {/* 메인 컨텐츠 */}
