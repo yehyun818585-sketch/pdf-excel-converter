@@ -219,31 +219,55 @@ export const documentTemplates: Record<DocumentType, {
   },
 
   assetDisposal: {
-    label: '취득처분전표',
-    fields: ['assetName', 'acquisitionDate', 'amount', 'counterparty', 'reason'],
-    prompt: `당신은 자산 취득/처분 전표 분석 전문가입니다. 아래 전표에서 핵심 정보를 정확하게 추출해주세요.
+    label: '자산취득처분',
+    fields: ['transactionType', 'transactionDate', 'assetCategory', 'itemDetail', 'counterparty', 'acquisitionCost', 'disposalPrice', 'accountCode', 'slipNumber'],
+    prompt: `당신은 회계감사 전문가입니다. 아래 전표/증빙에서 자산 취득 또는 처분 관련 정보를 추출해주세요.
+이 정보는 감사 조서(Audit Working Paper)에 사용되며, GL(총계정원장)과 대사(Reconciliation)하는 데 활용됩니다.
 
 [추출 규칙]
-1. assetName (자산명)
-   - 취득 또는 처분 대상 자산의 정확한 명칭
-   - 예: "업무용 차량 (소나타)", "사무용 컴퓨터"
+1. transactionType (거래유형)
+   - "취득" 또는 "처분" 중 하나
+   - 자산 계정이 차변에 있으면 "취득", 대변에 있으면 "처분"
 
-2. acquisitionDate (취득/처분일)
+2. transactionDate (거래일자)
    - YYYY-MM-DD 형식
+   - GL 대사를 위한 Key 값
 
-3. amount (금액)
-   - 형식: "한글금액(숫자, VAT 별도/포함)"
-   - 한글 금액이 있으면 한글 금액을 우선 기재
-   - 예: "삼천만원(30,000,000원, VAT 포함)"
+3. assetCategory (자산분류)
+   - 계정과목 기준 분류
+   - 예: "건물", "기계장치", "차량운반구", "비품", "소프트웨어" 등
 
-4. counterparty (거래 상대방)
-   - 자산을 구입/판매한 상대방
+4. itemDetail (품목상세) ★ 핵심 필드
+   - 가능한 한 구체적인 모델명/품명 추출
+   - 단순 "비품"이 아니라 "안마의자 바디프렌드 팬텀2", "맥북 프로 16인치 M3" 등
+   - 업무 무관 자산 여부 판단에 사용됨
+   - 적요, 품목명, 모델명 등에서 상세 정보 추출
 
-5. reason (취득/처분 사유)
-   - 간단한 사유 설명
-   - 예: "업무용 차량 교체", "노후 장비 매각"
+5. counterparty (거래처)
+   - 자산을 구입/판매한 상대방 회사명
+   - GL 대사를 위한 Key 값
+
+6. acquisitionCost (취득원가)
+   - 숫자만 (콤마 없이)
+   - 취득 시: 실제 취득금액 (공급가액 기준)
+   - 처분 시: 해당 자산의 원래 취득원가 (알 수 있는 경우)
+
+7. disposalPrice (처분가액)
+   - 숫자만 (콤마 없이)
+   - 처분 시에만 해당, 처분 대가로 받은 금액
+   - 취득 건이면 null
+
+8. accountCode (계정과목)
+   - 전표상의 계정과목명
+   - 예: "비품", "차량운반구", "유형자산처분손실" 등
+
+9. slipNumber (전표번호)
+   - 문서에 기재된 전표번호
+   - GL 대사를 위한 Key 값
 
 [중요]
+- 이 데이터는 감사인이 '자산의 실재성 및 분류 적정성'을 판단하는 데 사용됩니다
+- itemDetail(품목상세)을 최대한 구체적으로 추출해주세요 (업무 무관 자산 판단용)
 - 문서에서 명확히 확인되지 않는 정보는 null로 표시`
   },
 

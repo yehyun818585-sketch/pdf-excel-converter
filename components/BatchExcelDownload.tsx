@@ -67,11 +67,15 @@ const documentHeaders: Record<DocumentType, { key: string; label: string }[]> = 
     { key: 'counterparty', label: '상대방' },
   ],
   assetDisposal: [
-    { key: 'assetName', label: '자산명' },
-    { key: 'acquisitionDate', label: '취득/처분일' },
-    { key: 'amount', label: '금액' },
-    { key: 'counterparty', label: '거래상대방' },
-    { key: 'reason', label: '사유' },
+    { key: 'transactionType', label: '거래유형' },
+    { key: 'transactionDate', label: '거래일자' },
+    { key: 'assetCategory', label: '자산분류' },
+    { key: 'itemDetail', label: '품목상세' },
+    { key: 'counterparty', label: '거래처' },
+    { key: 'acquisitionCost', label: '취득원가' },
+    { key: 'disposalPrice', label: '처분가액' },
+    { key: 'accountCode', label: '계정과목' },
+    { key: 'slipNumber', label: '전표번호' },
   ],
   withholdingTax: [
     { key: 'attributionYearMonth', label: '귀속년월' },
@@ -95,7 +99,49 @@ const documentHeaders: Record<DocumentType, { key: string; label: string }[]> = 
 const numberFields = [
   'supplyValue', 'taxAmount', 'totalAmount', 'unpaidAmount',
   'deposit', 'withdrawal', 'balance', 'debit', 'credit',
-  'incomeTax', 'localIncomeTax', 'totalPayment', 'unitPrice', 'amount'
+  'incomeTax', 'localIncomeTax', 'totalPayment', 'unitPrice', 'amount',
+  'acquisitionCost', 'disposalPrice'
+]
+
+// 자산 관련 계정과목 키워드 (취득/처분 자동 감지용)
+const assetAccountKeywords = [
+  // 유형자산
+  '토지', '건물', '구축물', '기계장치', '차량운반구', '차량', '선박', '항공기',
+  '건설중인자산', '비품', '공구와기구', '공구기구', '시설장치', '집기',
+  // 무형자산
+  '영업권', '산업재산권', '특허권', '상표권', '저작권', '소프트웨어', '개발비',
+  '라이선스', '프랜차이즈',
+  // 투자자산
+  '투자부동산', '장기투자증권',
+  // 처분 관련
+  '유형자산처분', '무형자산처분', '자산처분', '처분손실', '처분이익'
+]
+
+// 계정과목이 자산 관련인지 확인
+const isAssetAccount = (accountCode: string): boolean => {
+  if (!accountCode) return false
+  return assetAccountKeywords.some(keyword => accountCode.includes(keyword))
+}
+
+// 자산 취득/처분 시트 헤더 (전표 전체를 표시하므로 회계전표와 동일한 형식 + 거래유형)
+const assetSheetHeaders = [
+  { key: 'transactionType', label: '거래유형' },
+  { key: 'slipNumber', label: '전표번호' },
+  { key: 'slipDate', label: '일자' },
+  { key: 'accountCode', label: '계정과목' },
+  { key: 'debit', label: '차변' },
+  { key: 'credit', label: '대변' },
+  { key: 'description', label: '적요' },
+]
+
+// 자산 요약 시트 헤더 (자산명, 취득/처분일, 금액, 상대방, 사유)
+const assetSummaryHeaders = [
+  { key: 'assetName', label: '자산명' },
+  { key: 'transactionDate', label: '취득/처분일' },
+  { key: 'transactionType', label: '유형' },
+  { key: 'amount', label: '금액' },
+  { key: 'counterparty', label: '상대방' },
+  { key: 'reason', label: '사유' },
 ]
 
 // 숫자 포맷팅
@@ -155,32 +201,89 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
       let totalLines = 0
 
       // 회계전표는 slips 배열 내의 entries를 펼쳐서 각 분개 라인을 별도 행으로 출력
+      // 단, 자산 관련 건은 별도 시트로 분리
       if (documentType === 'accountingSlip') {
         dataRows = []
+        const assetEntries: any[][] = []  // 자산 관련 건 별도 저장 (전표 전체)
+        const assetSummaryRows: any[][] = []  // 자산 요약 데이터
+        let nonAssetSlipIndex = 0
+
+        // 상대방(거래처) 추출 함수
+        const extractCounterparty = (entries: AccountingEntry[]): string => {
+          const counterpartyKeywords = ['미지급금', '미수금', '외상매입금', '외상매출금', '보통예금', '현금']
+          for (const entry of entries) {
+            if (counterpartyKeywords.some(k => entry.accountCode?.includes(k))) {
+              const desc = entry.description || ''
+              if (desc) return desc.replace(/결제|입금|출금|이체|\(.*\)/g, '').trim()
+            }
+          }
+          return ''
+        }
+
         docResults.forEach((result) => {
           // 새 형식: slips 배열
           const slips = result.fields.slips as AccountingSlip[] | undefined
 
           if (slips && Array.isArray(slips)) {
-            slips.forEach((slip, slipIndex) => {
+            slips.forEach((slip) => {
               const slipNumber = slip.slipNumber || ''
               const slipDate = slip.slipDate || ''
               const entries = slip.entries
 
               if (entries && Array.isArray(entries)) {
-                entries.forEach((entry) => {
-                  dataRows.push([
-                    slipNumber,
-                    slipDate,
-                    entry.accountCode || '',
-                    formatNumber(entry.debit),
-                    formatNumber(entry.credit),
-                    entry.description || '',
+                // 이 전표에 자산 관련 계정이 있는지 확인
+                const hasAssetEntry = entries.some(e => isAssetAccount(e.accountCode))
+
+                if (hasAssetEntry) {
+                  // 자산 관련 전표: 전표 전체를 자산 시트로 이동
+                  // 거래유형 판단 (자산 계정 기준)
+                  const assetEntry = entries.find(e => isAssetAccount(e.accountCode))
+                  const transactionType = assetEntry && assetEntry.debit > 0 ? '취득' : '처분'
+                  const amount = assetEntry ? (assetEntry.debit > 0 ? assetEntry.debit : assetEntry.credit) : 0
+                  const counterparty = extractCounterparty(entries)
+
+                  // 자산 요약 데이터 추가
+                  assetSummaryRows.push([
+                    assetEntry?.accountCode || '',  // 자산명 (계정과목)
+                    slipDate,  // 취득/처분일
+                    transactionType,  // 유형
+                    formatNumber(amount),  // 금액
+                    counterparty,  // 상대방
+                    assetEntry?.description || '',  // 사유 (적요)
                   ])
-                  totalLines++
-                })
-                // 전표 사이에 빈 행 추가 (마지막 전표 제외)
-                if (slipIndex < slips.length - 1) {
+
+                  // 전표의 모든 분개 라인을 자산 시트에 추가
+                  entries.forEach((entry) => {
+                    assetEntries.push([
+                      transactionType,
+                      slipNumber,
+                      slipDate,
+                      entry.accountCode || '',
+                      formatNumber(entry.debit),
+                      formatNumber(entry.credit),
+                      entry.description || '',
+                    ])
+                  })
+                  // 전표 사이 빈 행 추가
+                  assetEntries.push(['', '', '', '', '', '', ''])
+                } else {
+                  // 자산 관련 없는 전표: 일반 회계전표 시트에 포함
+                  entries.forEach((entry) => {
+                    dataRows.push([
+                      slipNumber,
+                      slipDate,
+                      entry.accountCode || '',
+                      formatNumber(entry.debit),
+                      formatNumber(entry.credit),
+                      entry.description || '',
+                    ])
+                    totalLines++
+                  })
+                  // 전표 사이에 빈 행 추가
+                  if (nonAssetSlipIndex > 0) {
+                    // 빈 행은 이전 전표 뒤에 추가 (마지막에는 추가 안함)
+                  }
+                  nonAssetSlipIndex++
                   dataRows.push(['', '', '', '', '', ''])
                 }
               }
@@ -192,17 +295,51 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
             const entries = result.fields.entries as AccountingEntry[] | undefined
 
             if (entries && Array.isArray(entries)) {
-              entries.forEach((entry) => {
-                dataRows.push([
-                  slipNumber,
-                  slipDate,
-                  entry.accountCode || '',
-                  formatNumber(entry.debit),
-                  formatNumber(entry.credit),
-                  entry.description || '',
+              const hasAssetEntry = entries.some(e => isAssetAccount(e.accountCode))
+
+              if (hasAssetEntry) {
+                // 자산 관련 전표: 전표 전체를 자산 시트로 이동
+                const assetEntry = entries.find(e => isAssetAccount(e.accountCode))
+                const transactionType = assetEntry && assetEntry.debit > 0 ? '취득' : '처분'
+                const amount = assetEntry ? (assetEntry.debit > 0 ? assetEntry.debit : assetEntry.credit) : 0
+                const counterparty = extractCounterparty(entries)
+
+                // 자산 요약 데이터 추가
+                assetSummaryRows.push([
+                  assetEntry?.accountCode || '',  // 자산명
+                  slipDate,  // 취득/처분일
+                  transactionType,  // 유형
+                  formatNumber(amount),  // 금액
+                  counterparty,  // 상대방
+                  assetEntry?.description || '',  // 사유
                 ])
-                totalLines++
-              })
+
+                entries.forEach((entry) => {
+                  assetEntries.push([
+                    transactionType,
+                    slipNumber,
+                    slipDate,
+                    entry.accountCode || '',
+                    formatNumber(entry.debit),
+                    formatNumber(entry.credit),
+                    entry.description || '',
+                  ])
+                })
+                // 전표 사이 빈 행 추가
+                assetEntries.push(['', '', '', '', '', '', ''])
+              } else {
+                entries.forEach((entry) => {
+                  dataRows.push([
+                    slipNumber,
+                    slipDate,
+                    entry.accountCode || '',
+                    formatNumber(entry.debit),
+                    formatNumber(entry.credit),
+                    entry.description || '',
+                  ])
+                  totalLines++
+                })
+              }
             } else {
               // 완전히 이전 형식 (단일 분개)
               dataRows.push([
@@ -217,6 +354,17 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
             }
           }
         })
+
+        // 마지막 빈 행 제거
+        if (dataRows.length > 0 && dataRows[dataRows.length - 1].every(cell => cell === '')) {
+          dataRows.pop()
+        }
+
+        // 자산 관련 건이 있으면 별도 시트 생성 (나중에 추가)
+        // @ts-ignore - 임시로 결과 저장
+        groupedResults['_assetEntries'] = assetEntries as any
+        // @ts-ignore - 자산 요약 데이터 저장
+        groupedResults['_assetSummaryRows'] = assetSummaryRows as any
       } else if (documentType === 'contract') {
         // 계약서는 번호 추가
         dataRows = docResults.map((result, idx) =>
@@ -273,13 +421,103 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
         }
       }
 
-      // 시트 추가 (회계전표는 라인 수 표시)
+      // 시트 추가
       // 주의: 시트 이름에 : \ / ? * [ ] 사용 불가
-      const countLabel = documentType === 'accountingSlip'
-        ? `${docResults.length}건_${totalLines}줄`
-        : `${docResults.length}건`
+      const countLabel = `${docResults.length}건`
       const sheetName = `${documentTypeLabels[documentType]}_${countLabel}`
       XLSX.utils.book_append_sheet(wb, ws, sheetName)
+
+      // 회계전표인 경우: 자산 취득/처분 건 별도 시트 생성 (위에서 분리된 데이터 사용)
+      if (documentType === 'accountingSlip') {
+        // @ts-ignore - 위에서 저장한 자산 데이터 가져오기
+        const assetEntries = groupedResults['_assetEntries'] as any[][] || []
+
+        // 자산 취득/처분 건이 있으면 별도 시트 생성
+        if (assetEntries.length > 0) {
+          // 마지막 빈 행 제거
+          while (assetEntries.length > 0 && assetEntries[assetEntries.length - 1].every(cell => cell === '')) {
+            assetEntries.pop()
+          }
+
+          // 전표 수 계산 (빈 행으로 구분된 전표 그룹 수)
+          let assetSlipCount = 0
+          let prevRowEmpty = true
+          assetEntries.forEach(row => {
+            const isEmpty = row.every(cell => cell === '')
+            if (!isEmpty && prevRowEmpty) {
+              assetSlipCount++
+            }
+            prevRowEmpty = isEmpty
+          })
+
+          const assetHeaderRow = assetSheetHeaders.map(h => h.label)
+          const assetSheetData = [assetHeaderRow, ...assetEntries]
+          const assetWs = XLSX.utils.aoa_to_sheet(assetSheetData)
+
+          // 컬럼 너비 설정 (회계전표와 동일 + 거래유형)
+          assetWs['!cols'] = [
+            { wch: 8 },   // 거래유형
+            { wch: 15 },  // 전표번호
+            { wch: 12 },  // 일자
+            { wch: 15 },  // 계정과목
+            { wch: 15 },  // 차변
+            { wch: 15 },  // 대변
+            { wch: 40 },  // 적요
+          ]
+
+          // 스타일 적용
+          const assetRange = XLSX.utils.decode_range(assetWs['!ref'] || 'A1')
+          for (let R = assetRange.s.r; R <= assetRange.e.r; R++) {
+            for (let C = assetRange.s.c; C <= assetRange.e.c; C++) {
+              const cellAddress = XLSX.utils.encode_cell({ r: R, c: C })
+              if (!assetWs[cellAddress]) continue
+              assetWs[cellAddress].s = R === 0 ? headerStyle : cellStyle
+            }
+          }
+
+          // 시트 이름: 회계전표_자산N건 (전표 수 기준)
+          XLSX.utils.book_append_sheet(wb, assetWs, `회계전표_자산${assetSlipCount}건`)
+
+          // 자산 요약 시트 생성
+          // @ts-ignore - 위에서 저장한 자산 요약 데이터 가져오기
+          const assetSummaryRows = groupedResults['_assetSummaryRows'] as any[][] || []
+
+          if (assetSummaryRows.length > 0) {
+            const summaryHeaderRow = assetSummaryHeaders.map(h => h.label)
+            const summarySheetData = [summaryHeaderRow, ...assetSummaryRows]
+            const summaryWs = XLSX.utils.aoa_to_sheet(summarySheetData)
+
+            // 컬럼 너비 설정
+            summaryWs['!cols'] = [
+              { wch: 20 },  // 자산명
+              { wch: 12 },  // 취득/처분일
+              { wch: 8 },   // 유형
+              { wch: 15 },  // 금액
+              { wch: 20 },  // 상대방
+              { wch: 40 },  // 사유
+            ]
+
+            // 스타일 적용
+            const summaryRange = XLSX.utils.decode_range(summaryWs['!ref'] || 'A1')
+            for (let R = summaryRange.s.r; R <= summaryRange.e.r; R++) {
+              for (let C = summaryRange.s.c; C <= summaryRange.e.c; C++) {
+                const cellAddress = XLSX.utils.encode_cell({ r: R, c: C })
+                if (!summaryWs[cellAddress]) continue
+                summaryWs[cellAddress].s = R === 0 ? headerStyle : cellStyle
+              }
+            }
+
+            // 시트 이름: 자산요약
+            XLSX.utils.book_append_sheet(wb, summaryWs, '자산요약')
+          }
+        }
+
+        // 임시 데이터 정리
+        // @ts-ignore
+        delete groupedResults['_assetEntries']
+        // @ts-ignore
+        delete groupedResults['_assetSummaryRows']
+      }
     })
 
     // 파일 다운로드

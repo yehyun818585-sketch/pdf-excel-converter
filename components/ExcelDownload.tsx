@@ -57,11 +57,12 @@ const fieldLabels: Record<string, string> = {
   balance: '잔액',
   transactionContent: '거래내용',
   counterparty: '상대방',
-  // 취득처분전표
-  assetName: '자산명',
-  acquisitionDate: '취득/처분일',
-  amount: '금액',
-  reason: '사유',
+  // 자산취득처분 (transactionDate, accountCode, slipNumber는 위에서 정의됨)
+  transactionType: '거래유형',
+  assetCategory: '자산분류',
+  itemDetail: '품목상세',
+  acquisitionCost: '취득원가',
+  disposalPrice: '처분가액',
   // 원천징수신고서
   attributionYearMonth: '귀속년월',
   numberOfPeople: '인원',
@@ -218,7 +219,7 @@ export default function ExcelDownload({ data, fileName }: ExcelDownloadProps) {
       const rows: any[][] = [['항목', '값']]
 
       const longTextFields = ['contractContent', 'description', 'transactionContent']
-      const numberFields = ['supplyValue', 'taxAmount', 'totalAmount', 'unpaidAmount', 'deposit', 'withdrawal', 'balance', 'debit', 'credit', 'incomeTax', 'localIncomeTax', 'totalPayment']
+      const numberFields = ['supplyValue', 'taxAmount', 'totalAmount', 'unpaidAmount', 'deposit', 'withdrawal', 'balance', 'debit', 'credit', 'incomeTax', 'localIncomeTax', 'totalPayment', 'acquisitionCost', 'disposalPrice']
       const boldFields = ['unpaidAmount']
       const boldRowIndices: number[] = []
 

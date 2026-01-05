@@ -18,7 +18,7 @@ const documentTypeLabels: Record<DocumentType, string> = {
 }
 
 // 숫자 금액 필드 (콤마 포맷 적용)
-const numberFields = ['supplyValue', 'taxAmount', 'totalAmount', 'unpaidAmount', 'deposit', 'withdrawal', 'balance', 'debit', 'credit', 'incomeTax', 'localIncomeTax', 'totalPayment', 'unitPrice', 'amount']
+const numberFields = ['supplyValue', 'taxAmount', 'totalAmount', 'unpaidAmount', 'deposit', 'withdrawal', 'balance', 'debit', 'credit', 'incomeTax', 'localIncomeTax', 'totalPayment', 'unitPrice', 'amount', 'acquisitionCost', 'disposalPrice']
 
 // 숫자를 천 단위 콤마 포맷으로 변환
 const formatNumber = (value: any): string => {
@@ -73,11 +73,12 @@ const fieldLabels: Record<string, string> = {
   balance: '잔액',
   transactionContent: '거래내용',
   counterparty: '상대방',
-  // 취득처분전표
-  assetName: '자산명',
-  acquisitionDate: '취득/처분일',
-  amount: '금액',
-  reason: '사유',
+  // 자산취득처분 (transactionDate, accountCode, slipNumber는 위에서 정의됨)
+  transactionType: '거래유형',
+  assetCategory: '자산분류',
+  itemDetail: '품목상세',
+  acquisitionCost: '취득원가',
+  disposalPrice: '처분가액',
   // 원천징수신고서
   attributionYearMonth: '귀속년월',
   numberOfPeople: '인원',

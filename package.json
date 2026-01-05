@@ -11,6 +11,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
     "@google-cloud/vision": "^5.3.4",
+    "jspdf": "^3.0.4",
+    "jspdf-autotable": "^5.0.2",
     "next": "16.1.1",
     "pdfjs-dist": "^4.10.38",
     "react": "19.2.3",
