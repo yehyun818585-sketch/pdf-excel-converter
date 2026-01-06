@@ -32,6 +32,7 @@ const documentHeaders: Record<DocumentType, { key: string; label: string }[]> = 
     { key: 'contractPeriod', label: '계약기간' },
   ],
   taxInvoice: [
+    { key: '_rowNumber', label: 'No.' },
     { key: 'supplier', label: '공급자' },
     { key: 'receiver', label: '공급받는자' },
     { key: 'issueDate', label: '작성일' },
@@ -42,6 +43,7 @@ const documentHeaders: Record<DocumentType, { key: string; label: string }[]> = 
     { key: 'unpaidAmount', label: '미지급금' },
   ],
   tradingStatement: [
+    { key: '_rowNumber', label: 'No.' },
     { key: 'supplier', label: '공급자' },
     { key: 'tradingPartner', label: '거래처' },
     { key: 'tradingDate', label: '거래일' },
@@ -51,14 +53,16 @@ const documentHeaders: Record<DocumentType, { key: string; label: string }[]> = 
     { key: 'totalAmount', label: '합계금액' },
   ],
   accountingSlip: [
+    { key: '_rowNumber', label: 'No.' },
     { key: 'slipNumber', label: '전표번호' },
     { key: 'slipDate', label: '일자' },
     { key: 'accountCode', label: '계정과목' },
     { key: 'debit', label: '차변' },
     { key: 'credit', label: '대변' },
     { key: 'description', label: '적요' },
-  ],  // 회계전표는 특별 처리 (entries 배열 펼치기)
+  ],  // 회계전표는 특별 처리 (entries 배열 펼치기, 전표 단위 번호)
   bankStatement: [
+    { key: '_rowNumber', label: 'No.' },
     { key: 'transactionDate', label: '거래일' },
     { key: 'deposit', label: '입금' },
     { key: 'withdrawal', label: '출금' },
@@ -67,6 +71,7 @@ const documentHeaders: Record<DocumentType, { key: string; label: string }[]> = 
     { key: 'counterparty', label: '상대방' },
   ],
   assetDisposal: [
+    { key: '_rowNumber', label: 'No.' },
     { key: 'transactionType', label: '거래유형' },
     { key: 'transactionDate', label: '거래일자' },
     { key: 'assetCategory', label: '자산분류' },
@@ -78,6 +83,7 @@ const documentHeaders: Record<DocumentType, { key: string; label: string }[]> = 
     { key: 'slipNumber', label: '전표번호' },
   ],
   withholdingTax: [
+    { key: '_rowNumber', label: 'No.' },
     { key: 'attributionYearMonth', label: '귀속년월' },
     { key: 'numberOfPeople', label: '인원' },
     { key: 'totalPayment', label: '총지급액' },
@@ -85,6 +91,7 @@ const documentHeaders: Record<DocumentType, { key: string; label: string }[]> = 
     { key: 'localIncomeTax', label: '지방소득세' },
   ],
   estimate: [
+    { key: '_rowNumber', label: 'No.' },
     { key: 'tradingPartner', label: '거래처' },
     { key: 'createdDate', label: '작성일' },
     { key: 'items', label: '품목' },
@@ -125,6 +132,7 @@ const isAssetAccount = (accountCode: string): boolean => {
 
 // 자산 취득/처분 시트 헤더 (전표 전체를 표시하므로 회계전표와 동일한 형식 + 거래유형)
 const assetSheetHeaders = [
+  { key: '_rowNumber', label: 'No.' },
   { key: 'transactionType', label: '거래유형' },
   { key: 'slipNumber', label: '전표번호' },
   { key: 'slipDate', label: '일자' },
@@ -136,6 +144,7 @@ const assetSheetHeaders = [
 
 // 자산 요약 시트 헤더 (자산명, 취득/처분일, 금액, 상대방, 사유)
 const assetSummaryHeaders = [
+  { key: '_rowNumber', label: 'No.' },
   { key: 'assetName', label: '자산명' },
   { key: 'transactionDate', label: '취득/처분일' },
   { key: 'transactionType', label: '유형' },
@@ -207,6 +216,7 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
         const assetEntries: any[][] = []  // 자산 관련 건 별도 저장 (전표 전체)
         const assetSummaryRows: any[][] = []  // 자산 요약 데이터
         let nonAssetSlipIndex = 0
+        let assetSlipIndex = 0
 
         // 상대방(거래처) 추출 함수
         const extractCounterparty = (entries: AccountingEntry[]): string => {
@@ -236,14 +246,16 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
 
                 if (hasAssetEntry) {
                   // 자산 관련 전표: 전표 전체를 자산 시트로 이동
+                  assetSlipIndex++
                   // 거래유형 판단 (자산 계정 기준)
                   const assetEntry = entries.find(e => isAssetAccount(e.accountCode))
                   const transactionType = assetEntry && assetEntry.debit > 0 ? '취득' : '처분'
                   const amount = assetEntry ? (assetEntry.debit > 0 ? assetEntry.debit : assetEntry.credit) : 0
                   const counterparty = extractCounterparty(entries)
 
-                  // 자산 요약 데이터 추가
+                  // 자산 요약 데이터 추가 (번호 포함)
                   assetSummaryRows.push([
+                    assetSlipIndex,  // No.
                     assetEntry?.accountCode || '',  // 자산명 (계정과목)
                     slipDate,  // 취득/처분일
                     transactionType,  // 유형
@@ -252,9 +264,10 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
                     assetEntry?.description || '',  // 사유 (적요)
                   ])
 
-                  // 전표의 모든 분개 라인을 자산 시트에 추가
+                  // 전표의 모든 분개 라인을 자산 시트에 추가 (번호 포함)
                   entries.forEach((entry) => {
                     assetEntries.push([
+                      assetSlipIndex,  // No. (전표 단위)
                       transactionType,
                       slipNumber,
                       slipDate,
@@ -265,11 +278,13 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
                     ])
                   })
                   // 전표 사이 빈 행 추가
-                  assetEntries.push(['', '', '', '', '', '', ''])
+                  assetEntries.push(['', '', '', '', '', '', '', ''])
                 } else {
                   // 자산 관련 없는 전표: 일반 회계전표 시트에 포함
+                  nonAssetSlipIndex++
                   entries.forEach((entry) => {
                     dataRows.push([
+                      nonAssetSlipIndex,  // No. (전표 단위)
                       slipNumber,
                       slipDate,
                       entry.accountCode || '',
@@ -280,11 +295,7 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
                     totalLines++
                   })
                   // 전표 사이에 빈 행 추가
-                  if (nonAssetSlipIndex > 0) {
-                    // 빈 행은 이전 전표 뒤에 추가 (마지막에는 추가 안함)
-                  }
-                  nonAssetSlipIndex++
-                  dataRows.push(['', '', '', '', '', ''])
+                  dataRows.push(['', '', '', '', '', '', ''])
                 }
               }
             })
@@ -299,13 +310,15 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
 
               if (hasAssetEntry) {
                 // 자산 관련 전표: 전표 전체를 자산 시트로 이동
+                assetSlipIndex++
                 const assetEntry = entries.find(e => isAssetAccount(e.accountCode))
                 const transactionType = assetEntry && assetEntry.debit > 0 ? '취득' : '처분'
                 const amount = assetEntry ? (assetEntry.debit > 0 ? assetEntry.debit : assetEntry.credit) : 0
                 const counterparty = extractCounterparty(entries)
 
-                // 자산 요약 데이터 추가
+                // 자산 요약 데이터 추가 (번호 포함)
                 assetSummaryRows.push([
+                  assetSlipIndex,  // No.
                   assetEntry?.accountCode || '',  // 자산명
                   slipDate,  // 취득/처분일
                   transactionType,  // 유형
@@ -316,6 +329,7 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
 
                 entries.forEach((entry) => {
                   assetEntries.push([
+                    assetSlipIndex,  // No. (전표 단위)
                     transactionType,
                     slipNumber,
                     slipDate,
@@ -326,10 +340,12 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
                   ])
                 })
                 // 전표 사이 빈 행 추가
-                assetEntries.push(['', '', '', '', '', '', ''])
+                assetEntries.push(['', '', '', '', '', '', '', ''])
               } else {
+                nonAssetSlipIndex++
                 entries.forEach((entry) => {
                   dataRows.push([
+                    nonAssetSlipIndex,  // No. (전표 단위)
                     slipNumber,
                     slipDate,
                     entry.accountCode || '',
@@ -342,7 +358,9 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
               }
             } else {
               // 완전히 이전 형식 (단일 분개)
+              nonAssetSlipIndex++
               dataRows.push([
+                nonAssetSlipIndex,  // No.
                 slipNumber,
                 slipDate,
                 result.fields.accountCode || '',
@@ -365,25 +383,17 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
         groupedResults['_assetEntries'] = assetEntries as any
         // @ts-ignore - 자산 요약 데이터 저장
         groupedResults['_assetSummaryRows'] = assetSummaryRows as any
-      } else if (documentType === 'contract') {
-        // 계약서는 번호 추가
+        // @ts-ignore - 일반 회계전표 수 저장
+        groupedResults['_nonAssetSlipCount'] = nonAssetSlipIndex as any
+        // @ts-ignore - 자산 전표 수 저장
+        groupedResults['_assetSlipCount'] = assetSlipIndex as any
+      } else {
+        // 다른 문서 유형은 번호 추가
         dataRows = docResults.map((result, idx) =>
           headers.map((h) => {
             if (h.key === '_rowNumber') {
               return idx + 1  // 1부터 시작하는 번호
             }
-            const value = result.fields[h.key]
-            if (numberFields.includes(h.key)) {
-              return formatNumber(value)
-            }
-            return value !== null && value !== undefined ? String(value) : ''
-          })
-        )
-        totalLines = dataRows.length
-      } else {
-        // 다른 문서 유형은 기존 방식
-        dataRows = docResults.map((result) =>
-          headers.map((h) => {
             const value = result.fields[h.key]
             if (numberFields.includes(h.key)) {
               return formatNumber(value)
@@ -398,18 +408,15 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
       const sheetData = [headerRow, ...dataRows]
       const ws = XLSX.utils.aoa_to_sheet(sheetData)
 
-      // 컬럼 너비 설정 (계약서는 계약내용/계약조건 칸을 넓게)
-      if (documentType === 'contract') {
-        ws['!cols'] = headers.map((h) => {
-          if (h.key === '_rowNumber') return { wch: 5 }
-          if (h.key === 'contractTitle') return { wch: 30 }
-          if (h.key === 'contractContent') return { wch: 50 }
-          if (h.key === 'contractTerms') return { wch: 50 }
-          return { wch: 20 }
-        })
-      } else {
-        ws['!cols'] = headers.map(() => ({ wch: 20 }))
-      }
+      // 컬럼 너비 설정
+      ws['!cols'] = headers.map((h) => {
+        if (h.key === '_rowNumber') return { wch: 5 }
+        if (h.key === 'contractTitle') return { wch: 30 }
+        if (h.key === 'contractContent') return { wch: 50 }
+        if (h.key === 'contractTerms') return { wch: 50 }
+        if (h.key === 'description') return { wch: 40 }
+        return { wch: 15 }
+      })
 
       // 스타일 적용
       const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
@@ -423,7 +430,13 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
 
       // 시트 추가
       // 주의: 시트 이름에 : \ / ? * [ ] 사용 불가
-      const countLabel = `${docResults.length}건`
+      // 회계전표는 저장된 일반 전표 수를 사용, 다른 문서는 docResults.length 사용
+      let actualCount = docResults.length
+      if (documentType === 'accountingSlip') {
+        // @ts-ignore - 위에서 저장한 일반 회계전표 수 가져오기
+        actualCount = groupedResults['_nonAssetSlipCount'] as number || 0
+      }
+      const countLabel = `${actualCount}건`
       const sheetName = `${documentTypeLabels[documentType]}_${countLabel}`
       XLSX.utils.book_append_sheet(wb, ws, sheetName)
 
@@ -454,8 +467,9 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
           const assetSheetData = [assetHeaderRow, ...assetEntries]
           const assetWs = XLSX.utils.aoa_to_sheet(assetSheetData)
 
-          // 컬럼 너비 설정 (회계전표와 동일 + 거래유형)
+          // 컬럼 너비 설정 (No. + 회계전표와 동일 + 거래유형)
           assetWs['!cols'] = [
+            { wch: 5 },   // No.
             { wch: 8 },   // 거래유형
             { wch: 15 },  // 전표번호
             { wch: 12 },  // 일자
@@ -476,7 +490,9 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
           }
 
           // 시트 이름: 회계전표_자산N건 (전표 수 기준)
-          XLSX.utils.book_append_sheet(wb, assetWs, `회계전표_자산${assetSlipCount}건`)
+          // @ts-ignore - 저장된 자산 전표 수 사용
+          const savedAssetSlipCount = groupedResults['_assetSlipCount'] as number || assetSlipCount
+          XLSX.utils.book_append_sheet(wb, assetWs, `회계전표_자산${savedAssetSlipCount}건`)
 
           // 자산 요약 시트 생성
           // @ts-ignore - 위에서 저장한 자산 요약 데이터 가져오기
@@ -487,8 +503,9 @@ export default function BatchExcelDownload({ results }: BatchExcelDownloadProps)
             const summarySheetData = [summaryHeaderRow, ...assetSummaryRows]
             const summaryWs = XLSX.utils.aoa_to_sheet(summarySheetData)
 
-            // 컬럼 너비 설정
+            // 컬럼 너비 설정 (No. 포함)
             summaryWs['!cols'] = [
+              { wch: 5 },   // No.
               { wch: 20 },  // 자산명
               { wch: 12 },  // 취득/처분일
               { wch: 8 },   // 유형

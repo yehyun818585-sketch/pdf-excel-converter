@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { detectDocumentType, detectDocumentTypeFromText, extractFromMultipleImages, extractFromText } from '@/lib/claude'
+import { detectDocumentType, detectDocumentTypeFromText, detectMultipleDocumentTypesFromText, extractFromMultipleImages, extractFromText, extractMultipleDocumentsFromText } from '@/lib/claude'
 import { DocumentType } from '@/app/page'
 import { validateAndFixContractAmount } from '@/lib/koreanAmount'
 
@@ -51,18 +51,45 @@ export async function POST(request: NextRequest) {
     if (pdfText && pdfText.length > 100) {
       console.log('=== 텍스트 기반 추출 모드 ===')
 
-      // 문서 유형 결정
-      let documentType: DocumentType
+      // 사용자가 문서 유형을 지정한 경우: 단일 문서 추출
       if (documentTypeParam) {
-        documentType = documentTypeParam
-      } else {
-        documentType = await detectDocumentTypeFromText(pdfText)
+        let fields = await extractFromText(pdfText, documentTypeParam)
+        fields = postProcessFields(documentTypeParam, fields)
+
+        return NextResponse.json({
+          documentType: documentTypeParam,
+          fields,
+          extractionMethod: 'text',
+        })
       }
 
-      // 텍스트 기반 추출
-      let fields = await extractFromText(pdfText, documentType)
+      // 문서 유형 미지정: 다중 문서 유형 감지 시도
+      console.log('=== 다중 문서 유형 감지 시작 ===')
+      const documentSections = await detectMultipleDocumentTypesFromText(pdfText)
+      const detectedTypes = [...new Set(documentSections.map(s => s.documentType))]
+      console.log('감지된 문서 유형들:', detectedTypes)
 
-      // 후처리: 금액 검증 및 수정
+      // 여러 문서 유형이 감지된 경우: 각 유형별로 추출
+      if (detectedTypes.length > 1) {
+        console.log('=== 복합 증빙 PDF - 다중 추출 모드 ===')
+        const multipleResults = await extractMultipleDocumentsFromText(pdfText, detectedTypes)
+
+        // 후처리
+        const processedResults = multipleResults.map(result => ({
+          documentType: result.documentType,
+          fields: postProcessFields(result.documentType, result.fields),
+        }))
+
+        return NextResponse.json({
+          isMultipleDocuments: true,
+          documents: processedResults,
+          extractionMethod: 'text-multi',
+        })
+      }
+
+      // 단일 문서 유형만 감지된 경우
+      const documentType = detectedTypes[0] || await detectDocumentTypeFromText(pdfText)
+      let fields = await extractFromText(pdfText, documentType)
       fields = postProcessFields(documentType, fields)
 
       return NextResponse.json({

@@ -8,7 +8,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 interface ProcessingFile {
   file: File
   status: 'pending' | 'processing' | 'completed' | 'error'
-  result?: ExtractedData
+  result?: ExtractedData[]  // 다중 문서 지원을 위해 배열로 변경
   error?: string
 }
 
@@ -143,7 +143,25 @@ export default function BatchPage() {
     })
   }
 
-  const processFile = async (fileItem: ProcessingFile): Promise<ExtractedData> => {
+  // 다중 문서 응답을 단일 문서 배열로 변환
+  const processApiResponse = (data: any, fileName: string): ExtractedData[] => {
+    // 다중 문서 응답인 경우
+    if (data.isMultipleDocuments && data.documents) {
+      console.log(`=== 복합 증빙 감지 (${fileName}): ${data.documents.length}개 문서 유형 ===`)
+      return data.documents.map((doc: any) => ({
+        documentType: doc.documentType,
+        fields: doc.fields,
+      }))
+    }
+
+    // 단일 문서 응답
+    return [{
+      documentType: data.documentType,
+      fields: data.fields,
+    }]
+  }
+
+  const processFile = async (fileItem: ProcessingFile): Promise<ExtractedData[]> => {
     const formData = new FormData()
 
     // PDF 처리: 텍스트 추출 시도 -> OCR -> 이미지 변환
@@ -231,7 +249,10 @@ export default function BatchPage() {
       throw new Error(errorData.error || '추출 실패')
     }
 
-    return response.json()
+    const data = await response.json()
+
+    // 다중 문서 응답 처리
+    return processApiResponse(data, fileItem.file.name)
   }
 
   const startBatchProcess = async () => {
@@ -285,9 +306,10 @@ export default function BatchPage() {
     setCurrentIndex(0)
   }
 
+  // 다중 문서 결과를 평탄화하여 단일 배열로 만듦
   const completedResults = files
     .filter((f) => f.status === 'completed' && f.result)
-    .map((f) => f.result!)
+    .flatMap((f) => f.result!)
 
   const stats = {
     total: files.length,
@@ -405,9 +427,11 @@ export default function BatchPage() {
 
                       <span className="truncate">{fileItem.file.name}</span>
 
-                      {fileItem.result && (
+                      {fileItem.result && fileItem.result.length > 0 && (
                         <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
-                          {fileItem.result.documentType}
+                          {fileItem.result.length > 1
+                            ? `복합: ${fileItem.result.map(r => r.documentType).join(', ')}`
+                            : fileItem.result[0].documentType}
                         </span>
                       )}
 

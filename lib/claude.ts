@@ -154,8 +154,182 @@ ${documentTypeDetectionPrompt}`,
   return 'contract'
 }
 
-// 텍스트 기반 템플릿 추출
-async function extractWithTextTemplate(
+// 문서 섹션 정보 타입
+export interface DocumentSection {
+  documentType: DocumentType
+  startIndex: number
+  endIndex: number
+  text: string
+}
+
+// 텍스트에서 여러 문서 유형 감지 (PDF 내 복합 증빙 처리)
+export async function detectMultipleDocumentTypesFromText(pdfText: string): Promise<DocumentSection[]> {
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 4096,
+    messages: [
+      {
+        role: 'user',
+        content: `다음 PDF 텍스트에 여러 종류의 증빙 문서가 포함되어 있는지 분석해주세요.
+
+=== 문서 텍스트 ===
+${pdfText}
+=== 텍스트 끝 ===
+
+[분석 요청]
+1. 이 PDF에 포함된 모든 증빙 문서 유형을 식별해주세요.
+2. 각 문서의 시작과 끝 위치(대략적인 텍스트 구간)를 파악해주세요.
+3. 하나의 PDF에 여러 유형의 증빙이 섞여 있을 수 있습니다.
+
+[증빙 문서 유형]
+- taxInvoice: 전자세금계산서 (공급자, 공급받는자, 공급가액, 세액 등이 있음)
+- accountingSlip: 회계전표 (전표번호, 계정과목, 차변, 대변, 적요 등이 있음)
+- tradingStatement: 거래명세서 (품목, 수량, 단가, 금액 등이 있음)
+- contract: 계약서 (갑, 을, 계약내용, 계약금액 등이 있음)
+- bankStatement: 통장입출금내역 (거래일, 입금, 출금, 잔액 등이 있음)
+- withholdingTax: 원천징수신고서 (귀속년월, 소득세, 지방소득세 등이 있음)
+- estimate: 견적서 (품목, 수량, 단가, 합계금액 등이 있음)
+
+[응답 형식]
+JSON 배열로 응답해주세요:
+{
+  "documents": [
+    {
+      "documentType": "taxInvoice",
+      "description": "전자세금계산서 - (주)ABC에서 발행",
+      "approximateLocation": "문서 상단 ~ 중간"
+    },
+    {
+      "documentType": "accountingSlip",
+      "description": "회계전표 - 전표번호 20241201-001",
+      "approximateLocation": "문서 중간 ~ 하단"
+    }
+  ]
+}
+
+만약 하나의 문서 유형만 있다면 배열에 하나만 포함하세요.`,
+      },
+    ],
+  })
+
+  const textContent = response.content.find((c) => c.type === 'text')
+  if (!textContent || textContent.type !== 'text') {
+    throw new Error('문서 유형을 인식할 수 없습니다.')
+  }
+
+  console.log('=== 다중 문서 유형 감지 응답 ===')
+  console.log(textContent.text)
+  console.log('==================')
+
+  try {
+    const jsonMatch = textContent.text.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0])
+      const documents = parsed.documents || []
+
+      // DocumentSection 배열로 변환
+      const sections: DocumentSection[] = documents.map((doc: any, index: number) => ({
+        documentType: doc.documentType as DocumentType,
+        startIndex: index * Math.floor(pdfText.length / documents.length),
+        endIndex: (index + 1) * Math.floor(pdfText.length / documents.length),
+        text: pdfText, // 전체 텍스트 (추후 분리 로직에서 사용)
+      }))
+
+      return sections.length > 0 ? sections : [{
+        documentType: 'accountingSlip',
+        startIndex: 0,
+        endIndex: pdfText.length,
+        text: pdfText
+      }]
+    }
+  } catch (e) {
+    console.error('다중 문서 감지 파싱 오류:', e)
+  }
+
+  // 파싱 실패 시 단일 문서로 처리
+  return [{ documentType: 'accountingSlip', startIndex: 0, endIndex: pdfText.length, text: pdfText }]
+}
+
+// 각 문서 유형별로 텍스트에서 정보 추출 (다중 문서 처리)
+export async function extractMultipleDocumentsFromText(
+  pdfText: string,
+  documentTypes: DocumentType[]
+): Promise<{ documentType: DocumentType; fields: Record<string, any> }[]> {
+  const results: { documentType: DocumentType; fields: Record<string, any> }[] = []
+
+  for (const docType of documentTypes) {
+    const template = documentTemplates[docType]
+    if (!template) continue
+
+    // 회계전표는 여러 전표가 있을 수 있으므로 기존 extractWithTextTemplate 사용
+    // (slips 배열로 모든 전표를 한 번에 추출)
+    let fields: Record<string, any>
+    if (docType === 'accountingSlip') {
+      fields = await extractWithTextTemplate(pdfText, template)
+    } else {
+      fields = await extractWithTextTemplateForType(pdfText, template)
+    }
+
+    if (fields && Object.keys(fields).some(k => fields[k] !== null)) {
+      results.push({ documentType: docType, fields })
+    }
+  }
+
+  return results
+}
+
+// 특정 문서 유형에 맞는 정보만 추출
+async function extractWithTextTemplateForType(
+  pdfText: string,
+  template: { label: string; fields: string[]; prompt: string }
+): Promise<Record<string, string | number | null>> {
+  console.log(`=== ${template.label} 추출 시작 ===`)
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 4096,
+    messages: [
+      {
+        role: 'user',
+        content: `다음 PDF 텍스트에서 "${template.label}" 정보만 추출해주세요.
+이 PDF에는 여러 종류의 증빙이 섞여 있을 수 있습니다. "${template.label}"에 해당하는 내용만 찾아서 추출하세요.
+
+=== 문서 텍스트 ===
+${pdfText}
+=== 텍스트 끝 ===
+
+${template.prompt}
+
+[중요 지침]
+1. "${template.label}"에 해당하는 정보만 추출하세요.
+2. 해당 문서 유형이 없으면 모든 필드를 null로 반환하세요.
+3. 다른 유형의 증빙 정보는 무시하세요.
+
+JSON 형식으로 응답해주세요.`,
+      },
+    ],
+  })
+
+  const textContent = response.content.find((c) => c.type === 'text')
+  if (!textContent || textContent.type !== 'text') {
+    return {}
+  }
+
+  try {
+    const jsonMatch = textContent.text.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0])
+      return validateAmountFields(parsed)
+    }
+  } catch (e) {
+    console.error(`${template.label} 파싱 오류:`, e)
+  }
+
+  return {}
+}
+
+// 텍스트 기반 템플릿 추출 (다중 문서 처리에서도 사용)
+export async function extractWithTextTemplate(
   pdfText: string,
   template: { label: string; fields: string[]; prompt: string }
 ): Promise<Record<string, string | number | null>> {
@@ -232,7 +406,7 @@ async function extractWithTemplate(
   const contentParts: Anthropic.ContentBlockParam[] = []
 
   // 모든 이미지 추가
-  images.forEach((img, index) => {
+  images.forEach((img) => {
     contentParts.push({
       type: 'image',
       source: {
