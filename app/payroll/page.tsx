@@ -355,11 +355,21 @@ export default function PayrollPage() {
         setFiles((prev) => prev.map((f, idx) => idx === fileIndex ? { ...f, status: 'processing' } : f))
 
         try {
-          // PDF 텍스트에서 귀속/지급연월 직접 파싱 (Claude API 결과가 null일 때 fallback)
+          // 귀속/지급연월 추출: 텍스트 PDF는 직접 파싱, 이미지 PDF는 OCR 후 파싱
           let directParsedDates = { attributionYearMonth: '', paymentYearMonth: '' }
           if (fileItem.file.type === 'application/pdf') {
             const rawText = await extractTextFromPdf(fileItem.file)
             directParsedDates = parseWithholdingDatesFromText(rawText)
+
+            // 텍스트에서 귀속연월 못 찾았고 이미지 PDF인 경우 → OCR 후 재시도
+            if (!directParsedDates.attributionYearMonth) {
+              const contentOnly = rawText.replace(/\[페이지 \d+\]\s*/g, '').trim()
+              if (contentOnly.length < 50) {
+                const images = await convertPdfToBase64Images(fileItem.file)
+                const ocrText = await callGoogleOcr(images)
+                if (ocrText) directParsedDates = parseWithholdingDatesFromText(ocrText)
+              }
+            }
           }
 
           let result = await processFile(fileItem)
