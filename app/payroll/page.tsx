@@ -491,8 +491,7 @@ export default function PayrollPage() {
 
       if (withholdingList.length > 0) {
         for (const w of withholdingList) {
-          const divKey = w.companyDivision || 'default'
-          const key = `${divKey}_${w.attributionYearMonth}`
+          const key = w.attributionYearMonth || '__fallback__'
           let paymentMonth = w.paymentYearMonth
           if (!paymentMonth && w.attributionYearMonth) {
             const [yr, mo] = w.attributionYearMonth.split('-').map(Number)
@@ -570,44 +569,24 @@ export default function PayrollPage() {
 
             for (const doc of documents) {
               if (doc.documentType === 'payroll') {
-                const payrollDiv = doc.fields.companyDivision || ''
                 const payrollMonth = doc.fields.paymentYearMonth || ''
 
-                // 사업장 + 귀속월로 정확히 매칭
-                const exactKey = payrollDiv ? `${payrollDiv}_${payrollMonth}` : null
-                let targetGroup = exactKey ? groupMap.get(exactKey) : null
+                // 귀속월로 그룹 찾기
+                let targetGroup = payrollMonth ? groupMap.get(payrollMonth) : null
 
-                // 월만으로 fallback 매칭 (사업장 정보 없을 때)
+                // 귀속월 비어있는 그룹 fallback
                 if (!targetGroup && payrollMonth) {
                   for (const group of groupMap.values()) {
-                    if (group.attributionMonth === payrollMonth && !group.payroll) {
+                    if (!group.attributionMonth && !group.payroll && group.groupKey !== '__fallback__') {
+                      group.attributionMonth = payrollMonth
+                      if (!group.paymentMonth) {
+                        const [yr, mo] = payrollMonth.split('-').map(Number)
+                        const nextMo = mo === 12 ? 1 : mo + 1
+                        const nextYr = mo === 12 ? yr + 1 : yr
+                        group.paymentMonth = `${nextYr}-${String(nextMo).padStart(2, '0')}`
+                      }
                       targetGroup = group
                       break
-                    }
-                  }
-                }
-
-                // 귀속월 비어있는 그룹 fallback (원천징수에서 귀속월/사업장 추출 실패한 경우)
-                // 사업장 중 하나라도 비어있으면 매칭 허용 (추출 실패 케이스 포함)
-                if (!targetGroup) {
-                  for (const group of groupMap.values()) {
-                    if (!group.attributionMonth && !group.payroll && group.groupKey !== '__fallback__') {
-                      const divMatches =
-                        !payrollDiv ||
-                        !group.companyDivision ||
-                        group.companyDivision === payrollDiv
-                      if (divMatches) {
-                        group.attributionMonth = payrollMonth
-                        if (payrollDiv && !group.companyDivision) group.companyDivision = payrollDiv
-                        if (!group.paymentMonth && payrollMonth) {
-                          const [yr, mo] = payrollMonth.split('-').map(Number)
-                          const nextMo = mo === 12 ? 1 : mo + 1
-                          const nextYr = mo === 12 ? yr + 1 : yr
-                          group.paymentMonth = `${nextYr}-${String(nextMo).padStart(2, '0')}`
-                        }
-                        targetGroup = group
-                        break
-                      }
                     }
                   }
                 }
@@ -631,7 +610,7 @@ export default function PayrollPage() {
 
                 if (targetGroup) {
                   targetGroup.payroll = {
-                    companyDivision: payrollDiv,
+                    companyDivision: doc.fields.companyDivision || '',
                     yearMonth: payrollMonth,
                     paymentDate: doc.fields.paymentDate || '',
                     employees: doc.fields.employees || [],
@@ -658,12 +637,7 @@ export default function PayrollPage() {
         let matched = false
         if (bank.transferMonth) {
           for (const group of groupMap.values()) {
-            const monthMatches = group.paymentMonth === bank.transferMonth
-            const divisionMatches =
-              !bank.companyDivision ||
-              !group.companyDivision ||
-              bank.companyDivision === group.companyDivision
-            if (monthMatches && divisionMatches) {
+            if (group.paymentMonth === bank.transferMonth) {
               group.bankList.push(bank)
               matched = true
               break
@@ -738,11 +712,7 @@ export default function PayrollPage() {
         })
       }
 
-      // 사업장 → 귀속월 순 정렬
-      finalGroups.sort((a, b) => {
-        const divCmp = a.companyDivision.localeCompare(b.companyDivision)
-        return divCmp !== 0 ? divCmp : a.attributionMonth.localeCompare(b.attributionMonth)
-      })
+      finalGroups.sort((a, b) => a.attributionMonth.localeCompare(b.attributionMonth))
       setMonthGroups(finalGroups)
 
     } catch (err) {
@@ -781,10 +751,6 @@ export default function PayrollPage() {
     withholding: monthGroups.some((g) => g.withholding !== null),
   }
 
-  // 사업장이 2개 이상이면 컬럼 표시
-  const showDivisionColumn =
-    new Set(monthGroups.map((g) => g.companyDivision).filter(Boolean)).size > 1
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 transition-all duration-500">
       <div className="max-w-6xl mx-auto py-12 px-4">
@@ -810,7 +776,7 @@ export default function PayrollPage() {
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">급여 검증</h1>
           <p className="text-gray-600">
-            급여대장, 원천징수신고서, 통장내역을 업로드하면 사업장별·월별로 자동 크로스체크합니다
+            급여대장, 원천징수신고서, 통장내역을 업로드하면 월별로 자동 크로스체크합니다
           </p>
         </div>
 
@@ -840,7 +806,7 @@ export default function PayrollPage() {
               </div>
               <p className="text-gray-600 font-medium">급여 관련 파일을 드래그하거나 클릭하여 업로드</p>
               <p className="text-sm text-gray-400 mt-1">
-                급여대장(Excel/PDF), 원천징수신고서, 이체확인증 — 여러 사업장·여러 달 가능
+                급여대장(Excel/PDF), 원천징수신고서, 이체확인증 — 여러 달 가능
               </p>
             </label>
           </div>
@@ -950,9 +916,6 @@ export default function PayrollPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
-                      {showDivisionColumn && (
-                        <th className="text-left py-3 px-4 font-medium text-gray-500">사업장</th>
-                      )}
                       <th className="text-left py-3 px-4 font-medium text-gray-500">귀속월</th>
                       <th className="text-right py-3 px-4 font-medium text-gray-500">급여대장</th>
                       <th className="text-right py-3 px-4 font-medium text-gray-500">원천징수</th>
@@ -967,7 +930,7 @@ export default function PayrollPage() {
                     {monthGroups.flatMap((group) => {
                       const isExpanded = expandedMonth === group.groupKey
                       const hasIndividual = group.individualMatches.length > 0
-                      const colSpan = showDivisionColumn ? 9 : 8
+                      const colSpan = 8
 
                       const mainRow = (
                         <tr
@@ -977,11 +940,6 @@ export default function PayrollPage() {
                             ${hasIndividual ? 'cursor-pointer hover:bg-gray-50' : ''}
                             ${!group.isMatched ? 'bg-red-50/40' : ''}`}
                         >
-                          {showDivisionColumn && (
-                            <td className="py-3 px-4 font-medium text-purple-700">
-                              {group.companyDivision || '-'}
-                            </td>
-                          )}
                           <td className="py-3 px-4 font-medium">
                             <div className="flex items-center gap-1.5">
                               <span>{group.attributionMonth || '-'}</span>
@@ -1112,7 +1070,7 @@ export default function PayrollPage() {
             ))}
           </div>
           <p className="mt-3 text-gray-500 text-sm">
-            여러 사업장·여러 달치 파일을 한 번에 업로드하면 자동으로 그룹핑합니다.
+            한 사업장·여러 달치 파일을 한 번에 업로드하면 자동으로 월별 그룹핑합니다.
           </p>
         </div>
       </div>
