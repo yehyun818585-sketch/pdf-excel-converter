@@ -455,8 +455,8 @@ export default function PayrollPage() {
               const transferDateRaw = doc.fields.transactionDate || doc.fields.transferDate || ''
               const transferDateStr = String(transferDateRaw)
               const transferMonthMatch =
-                transferDateStr.match(/(\d{4})[-./](0?[1-9]|1[0-2])/) ||
-                transferDateStr.match(/(\d{4})년\s*(0?[1-9]|1[0-2])월/) ||
+                transferDateStr.match(/(\d{4})[-./](1[0-2]|0?[1-9])/) ||
+                transferDateStr.match(/(\d{4})년\s*(1[0-2]|0?[1-9])월/) ||
                 transferDateStr.match(/(\d{4})(0[1-9]|1[0-2])\d{2}/)
               const transferMonth = transferMonthMatch
                 ? `${transferMonthMatch[1]}-${String(parseInt(transferMonthMatch[2])).padStart(2, '0')}`
