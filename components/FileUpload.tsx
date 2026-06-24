@@ -150,18 +150,35 @@ export default function FileUpload({ onFilesSelect, selectedFiles }: FileUploadP
           console.log('=== 이미지 파일 처리 ===')
           setConversionStatus('이미지 OCR 처리 중...')
 
-          // 이미지를 base64로 변환
-          const base64 = await new Promise<string>((resolve, reject) => {
+          // 픽셀 수 기준으로 저화질 판단 후 필요 시 canvas로 2배 확대
+          const imageData = await new Promise<{ base64: string; mediaType: string }>((resolve, reject) => {
             const reader = new FileReader()
             reader.onload = () => {
-              const result = reader.result as string
-              resolve(result.split(',')[1])
+              const dataUrl = reader.result as string
+              const originalBase64 = dataUrl.split(',')[1]
+              const img = new Image()
+              img.onload = () => {
+                const totalPixels = img.width * img.height
+                if (totalPixels < 1_000_000) {
+                  console.log(`저화질 이미지 감지 (${img.width}×${img.height}) → canvas 2배 확대`)
+                  setConversionStatus('저화질 이미지 확대 처리 중...')
+                  const canvas = document.createElement('canvas')
+                  canvas.width = img.width * 2
+                  canvas.height = img.height * 2
+                  canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+                  resolve({ base64: canvas.toDataURL('image/png').split(',')[1], mediaType: 'image/png' })
+                } else {
+                  console.log(`고화질 이미지 (${img.width}×${img.height}) → 원본 그대로 OCR`)
+                  resolve({ base64: originalBase64, mediaType: file.type })
+                }
+              }
+              img.onerror = reject
+              img.src = dataUrl
             }
             reader.onerror = reject
             reader.readAsDataURL(file)
           })
 
-          const imageData = { base64, mediaType: file.type }
           const ocrText = await callGoogleOcr([imageData])
           console.log('Google OCR 결과 길이:', ocrText.length)
 
