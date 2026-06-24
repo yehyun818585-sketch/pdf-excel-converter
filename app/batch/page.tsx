@@ -140,14 +140,30 @@ export default function BatchPage() {
     }
   }
 
-  // 이미지 파일을 base64로 변환
+  // 이미지 파일을 base64로 변환 (픽셀 수 기준 저화질 판단 후 필요 시 canvas 2배 확대)
   const convertImageToBase64 = async (imageFile: File): Promise<{ base64: string; mediaType: string }> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = () => {
-        const result = reader.result as string
-        const base64 = result.split(',')[1]
-        resolve({ base64, mediaType: imageFile.type })
+        const dataUrl = reader.result as string
+        const originalBase64 = dataUrl.split(',')[1]
+        const img = new Image()
+        img.onload = () => {
+          const totalPixels = img.width * img.height
+          if (totalPixels < 1_000_000) {
+            console.log(`저화질 이미지 감지 (${img.width}×${img.height}) → canvas 2배 확대`)
+            const canvas = document.createElement('canvas')
+            canvas.width = img.width * 2
+            canvas.height = img.height * 2
+            canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+            resolve({ base64: canvas.toDataURL('image/png').split(',')[1], mediaType: 'image/png' })
+          } else {
+            console.log(`고화질 이미지 (${img.width}×${img.height}) → 원본 그대로 OCR`)
+            resolve({ base64: originalBase64, mediaType: imageFile.type })
+          }
+        }
+        img.onerror = reject
+        img.src = dataUrl
       }
       reader.onerror = reject
       reader.readAsDataURL(imageFile)
