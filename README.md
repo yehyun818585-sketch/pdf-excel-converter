@@ -4,11 +4,11 @@
 >
 > `Next.js` · `Claude API` · `Google Vision OCR` · `pdfjs-dist` · `xlsx-js-style`
 
-🎗 **라이브 데모** · https://pdf-excel-converter-azure.vercel.app/
+**라이브 데모** · https://pdf-excel-converter-azure.vercel.app/
 
-**🧪 직접 테스트해보기**
+**직접 테스트해보기**
 
-아래 샘플 증빙을 내려받아 [라이브 데모](데모링크)에 업로드해보실 수 있습니다.
+아래 샘플 증빙을 내려받아 업로드해보실 수 있습니다.
 
 -  [계약서 샘플 (PDF)](./test_file/샘플_용역계약서.pdf)
 -  [견적서 샘플 (PDF)](./test_file/샘플_견적서.pdf)
